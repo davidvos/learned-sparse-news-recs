@@ -3,7 +3,7 @@ from sklearn.metrics import roc_auc_score
 import os
 
 class EarlyStopping:
-    def __init__(self, patience=20):
+    def __init__(self, patience=5):
         self.patience = patience
         self.counter = 0
         self.best_loss = np.inf

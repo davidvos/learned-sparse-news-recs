@@ -17,7 +17,7 @@ import yaml
 with open("./config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
-def parse_behaviors(source, target, split, warm_threshold):
+def parse_behaviors(source, target):
     """
     Parse behaviors file in training set.
     Args:
@@ -35,10 +35,7 @@ def parse_behaviors(source, target, split, warm_threshold):
 
     behaviors.clicked_news = behaviors.clicked_news.swifter.apply(
             lambda x: ' '.join(x.split()))
-    
-    if warm_threshold:
-        behaviors = behaviors[behaviors.clicked_news.apply(lambda x: len(x.split())) > warm_threshold]
-    
+        
     behaviors.impressions = behaviors.impressions.str.split()
 
     for row in tqdm(behaviors.itertuples(), desc="Balancing data"):
@@ -70,7 +67,7 @@ def parse_behaviors(source, target, split, warm_threshold):
         index=False,
         columns=['user', 'clicked_news', 'candidate_news', 'clicked'])
     
-def parse_eval_behaviors(source, target, split, cold_threshold):
+def parse_eval_behaviors(source, target, cold_threshold):
     """
     Parse behaviors file in evaluation set.
     Args:
@@ -99,7 +96,6 @@ def parse_eval_behaviors(source, target, split, cold_threshold):
     behaviors.impressions = behaviors.impressions.apply(
         lambda x: ' '.join(x))
     
-    
     behaviors.to_csv(
         target,
         sep='\t',
@@ -111,19 +107,6 @@ if __name__ == '__main__':
 
     base = './data/mind'
 
-    split = 'all'
-
-    warm_threshold = 30
-    
-    if split == 'demo':
-        base += '_demo'
-    
-    if split == 'all':
-        base += '_all'
-    
-    if warm_threshold:
-        base += '_warm50'
-
     train_dir = f'{base}/train'
     val_dir = f'{base}/val'
     test_dir = f'{base}/test'
@@ -133,13 +116,10 @@ if __name__ == '__main__':
     print('Parse behaviors')
     
     parse_behaviors(path.join(train_dir, 'behaviors.tsv'),
-                    path.join(train_dir, f'behaviors_parsed.tsv'),
-                    split,
-                    warm_threshold)
+                    path.join(train_dir, f'behaviors_parsed.tsv'))
     
     
     for cold_threshold in [1, 2, 3, 4, 5, 0]:
         parse_eval_behaviors(path.join(val_dir, 'behaviors.tsv'),
                         path.join(val_dir, f'behaviors_parsed_{cold_threshold}.tsv'),
-                        split,
                         cold_threshold)
