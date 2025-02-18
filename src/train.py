@@ -2,32 +2,25 @@ import argparse
 import yaml
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import wandb
 from tqdm import tqdm
 import os
 import gc
-from torch.nn.utils import clip_grad_norm_
 import numpy as np
 import random
-from transformers import get_linear_schedule_with_warmup
 
 from model.NRMSBERT import NRMSBERT
 from model.NAMLBERT import NAMLBERT
 from model.LSTURBERT import LSTURBERT
 
-from model.SEQ_LSNR import SEQ_LSNR
-from model.SEQ_LSNR_CAT import SEQ_LSNR_CAT
-
 from model.LSNR import LSNR
-from model.LSNR_NAML import LSNR_NAML
+from model.LSNR_CAT import LSNR_CAT
 
 from datasets import BaseDataset
 from evaluate import eval
-from utils import EarlyStopping, latest_checkpoint
+from utils import EarlyStopping
 
-from torch.utils.data.dataloader import default_collate
 
 # set seeds
 torch.manual_seed(42)
@@ -59,14 +52,14 @@ MODEL_REGISTRY = {
     'naml': NAMLBERT,
     'lstur': LSTURBERT,
     
-    'seq_lsnr': SEQ_LSNR,
-    'seq_lsnr_cat': SEQ_LSNR_CAT
+    'lsnr': LSNR,
+    'lsnr_cat': LSNR_CAT
 }
 
 # Add project name mapping
 PROJECT_NAMES = {
-    'mind_all': 'sparse_news_recs_all',
-    'ebnerd_all': 'ebnerd_all'
+    'mind': 'mind',
+    'ebnerd': 'ebnerd'
 }
 
 def train(model: nn.Module) -> None:
@@ -119,7 +112,7 @@ def train(model: nn.Module) -> None:
                                batch["clicked_news"],
                                batch["clicked_news_mask"])   
                 regularization = 0         
-            elif args.model == 'seq_lsnr' or args.model == 'seq_lsnr_cat':
+            elif args.model == 'lsnr' or args.model == 'lsnr_cat':
                 y_pred, regularization = model(batch["candidate_news"], 
                                batch["clicked_news"],
                                batch["clicked_news_mask"])
@@ -128,6 +121,7 @@ def train(model: nn.Module) -> None:
                                batch["clicked_news"],
                                batch["clicked_news_mask"],
                                batch["user"])
+                regularization = 0
 
             y = torch.zeros(len(y_pred)).long().to(device) 
                 
@@ -154,10 +148,7 @@ def train(model: nn.Module) -> None:
                 cold_val_auc, cold_val_mrr, cold_val_ndcg5, cold_val_ndcg10 = eval(model, config, cold_threshold=2)
                 wandb.log({"cold_val_auc": cold_val_auc, "cold_val_mrr": cold_val_mrr, "cold_val_ndcg5": cold_val_ndcg5, "cold_val_ndcg10": cold_val_ndcg10})
 
-                # val_auc, val_mrr, val_ndcg5, val_ndcg10 = eval(model, config, cold_threshold=0, dataset='ebnerd')
-                # wandb.log({"ebnerd_val_auc": val_auc, "ebnerd_val_mrr": val_mrr, "ebnerd_val_ndcg5": val_ndcg5, "ebnerd_val_ndcg10": val_ndcg10})
-
-                if args.model == 'seq_lsnr' or args.model == 'seq_lsnr_cat':
+                if args.model == 'lsnr' or args.model == 'lsnr_cat':
                     early_stop, get_better = early_stopping(-cold_val_auc)
                 else:
                     early_stop, get_better = early_stopping(-val_auc)

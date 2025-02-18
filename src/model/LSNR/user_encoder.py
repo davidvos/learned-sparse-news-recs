@@ -1,5 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from model.general.attention.multihead_self import MultiHeadSelfAttention
+from model.general.attention.additive import AdditiveAttention
 
 class L1Regularizer(nn.Module):
     def __init__(self, T: int = 5000, alpha: float = 0.02):
@@ -53,35 +56,104 @@ class L1Regularizer(nn.Module):
         else:
             pass
 
-class UserEncoder(torch.nn.Module):
-    def __init__(self, config, plm, device):
-        super(UserEncoder, self).__init__()
+# NEW: GatedProjection module for the output projection
+class GatedProjection(nn.Module):
+    def __init__(self, in_features, out_features, dropout_prob, plm):
+        super().__init__()
+        self.fc_gate = nn.Linear(in_features, out_features)        # computes the gate
 
+        # load weights from mlm head
+        self.fc_transform = nn.Linear(in_features, out_features)     # computes the transformation
+        self.fc_transform.weight = plm.cls.predictions.decoder.weight
+        
+        self.dropout = nn.Dropout(dropout_prob)
+
+    def forward(self, x):
+        # Compute gated output: dropout(sigmoid(gate) * tanh(transform))
+        gate = torch.sigmoid(self.fc_gate(x))
+        transform = torch.tanh(self.fc_transform(x))
+        return self.dropout(gate * transform)
+
+class UserEncoder(nn.Module):
+    def __init__(self, config, plm, device):
+        super().__init__()
         self.config = config
-        self.plm = plm
         self.device = device
 
-        self.embedding_dim = plm.config.vocab_size
-                
-        self.regularizer = L1Regularizer(alpha=0.0008, T=5000)
+        self.sparse_dim = plm.config.vocab_size
+        self.reduced_dim = plm.config.hidden_size
+        self.embedding_dim = self.reduced_dim
+        
+        # Use config dropout probability
+        self.dropout_prob = config['dropout_probability']
+        
+         # Increase number of attention heads for better temporal modeling
+        self.multihead_self_attention = MultiHeadSelfAttention(
+            self.embedding_dim, 16)
+        
+        self.additive_attention = AdditiveAttention(
+            config['query_vector_dim'],
+            self.embedding_dim
+        ) 
+        
+        # Add time decay for temporal attention
+        max_history = config.get('max_history_length', 50)
+        self.time_decay = nn.Parameter(
+            torch.exp(-torch.arange(max_history) / 10.0),  # exponential decay
+            requires_grad=True
+        )
+        
+        self.position_embedding = nn.Parameter(
+            torch.randn(1, max_history, self.embedding_dim) * 0.02  # smaller init
+        )
+        
+        # Dimension reduction
+        self.dim_reduction = nn.Sequential(
+            nn.Linear(self.sparse_dim, self.reduced_dim),
+            nn.LayerNorm(self.reduced_dim),
+            nn.GELU(),
+            nn.Dropout(self.dropout_prob),
+            nn.Linear(self.reduced_dim, self.reduced_dim)
+        )
+ 
+        # Remove the original output_projection and use the new gated projection instead.
+        self.gated_projection = GatedProjection(self.embedding_dim, self.sparse_dim, self.dropout_prob, plm)
+        
+        self.layer_norm1 = nn.LayerNorm(self.reduced_dim)
+        self.layer_norm2 = nn.LayerNorm(self.reduced_dim)
+        # Removed layer_norm2 since the Transformer layers perform internal normalization
+        self.dropout = nn.Dropout(self.dropout_prob)
+        
+        # Weaker regularization for user embeddings
+        self.regularizer = L1Regularizer(alpha=0.004, T=10000)
 
-    def forward(self, recent_history):
-        """
-        Args:
-            user_vector: batch_size, num_clicked_news_a_user, word_embedding_dim
-        Returns:
-            (shape) batch_size, word_embedding_dim
-        """
-
-        recent_history = {
-            "input_ids": recent_history["input_ids"].squeeze(1).to(self.device),
-            "attention_mask": recent_history["attention_mask"].squeeze(1).to(self.device)
-        }
-
-        outputs = self.plm(**recent_history)
-        expansion_scores = torch.log(1 + torch.relu(outputs.logits))
-        sparse_user_embedding = torch.max(expansion_scores, dim=1).values
-
-        regularization = self.regularizer(sparse_user_embedding)
-
-        return sparse_user_embedding, regularization
+    def forward(self, article_vectors):
+        # Apply temporal decay
+        seq_len = article_vectors.size(1)
+        time_weights = self.time_decay[:seq_len].to(self.device)
+        article_vectors = article_vectors * time_weights[None, :, None]
+        
+        # Dimension reduction
+        reduced_articles = self.dim_reduction(article_vectors)
+        reduced_articles = self.dropout(reduced_articles)
+        
+        # Add position embeddings and normalize
+        reduced_articles = reduced_articles + self.position_embedding[:, :reduced_articles.size(1), :]
+        reduced_articles = self.layer_norm1(reduced_articles)
+        
+        # Self attention with residual
+        attended = self.multihead_self_attention(reduced_articles)
+        attended = reduced_articles + self.dropout(attended)
+        attended = self.layer_norm2(attended)
+        
+        # User embedding with additive attention
+        user_emb = self.additive_attention(attended)
+        
+        # Use the gated projection followed by softplus for the final user embedding
+        user_emb = self.gated_projection(user_emb)
+        user_emb = torch.log1p(F.relu(user_emb))
+        
+        # Apply regularization
+        reg = self.regularizer(user_emb)
+        
+        return user_emb, reg

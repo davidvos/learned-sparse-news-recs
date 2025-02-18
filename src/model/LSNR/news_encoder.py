@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from model.general.attention.multihead_self import MultiHeadSelfAttention
+from model.general.attention.additive import AdditiveAttention
 
 class L1Regularizer(nn.Module):
     def __init__(self, T: int = 5000, alpha: float = 0.06):
@@ -56,39 +58,45 @@ class L1Regularizer(nn.Module):
 
 class NewsEncoder(torch.nn.Module):
     def __init__(self, config, plm, device):
-        super(NewsEncoder, self).__init__()
-
-        self.config = config
+        super().__init__()
         self.plm = plm
         self.device = device
 
         self.embedding_dim = self.plm.config.hidden_size
+        self.sparse_dim = plm.config.vocab_size
 
-        self.regularizer = L1Regularizer(alpha=0.008, T=5000)
+        self.multihead_self_attention = MultiHeadSelfAttention(
+            self.embedding_dim, config['num_attention_heads'])
+        
+        self.additive_attention = AdditiveAttention(config['query_vector_dim'],
+                                                    self.embedding_dim) 
+        
+        self.projection = nn.Linear(self.embedding_dim, self.sparse_dim)
+        self.projection.weight = self.plm.cls.predictions.decoder.weight
+        
+        self.regularizer = L1Regularizer(alpha=0.0012, T=10000)
+        
 
     def forward(self, news):
-        """
-        Args:
-            news:
-                {
-                    "title": batch_size * num_words_title
-                    "attention_mask": batch_size * num_words_title
-                }
-        Returns:
-            (shape) batch_size, word_embedding_dim
-        """
+
+        # Process text through PLM
+        outputs = self.plm(
+            input_ids=news["input_ids"].squeeze(1).to(self.device),
+            attention_mask=news["attention_mask"].squeeze(1).to(self.device),
+        )
         
-        news = {
-            "input_ids": news["input_ids"].squeeze(1).to(self.device),
-            "attention_mask": news["attention_mask"].squeeze(1).to(self.device)
-        }
+        outputs = outputs.hidden_states[-1]
+
+        # Apply multihead self-attention
+        outputs = self.multihead_self_attention(outputs)
+
+        # Apply additive attention
+        outputs = self.additive_attention(outputs)
         
-        outputs = self.plm(**news)
+        # projection is mlm head
+        logits = self.projection(outputs)
 
-        expansion_scores = torch.log(1 + torch.relu(outputs.logits))
+        document_vector = torch.log1p(F.relu(logits))  # [batch, seq_len, vocab_size]
 
-        document_vector = torch.max(expansion_scores, dim=1).values
-
-        regularization = self.regularizer(document_vector)
-
-        return document_vector, regularization
+        reg = self.regularizer(document_vector)
+        return document_vector, reg

@@ -23,7 +23,7 @@ class NewsDataset(Dataset):
 
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
 
-        if args.dataset == 'mind' or args.dataset == 'mind_demo' or args.dataset == 'mind_demo_warm50' or args.dataset == 'mind_warm50' or args.dataset == 'mind_all' or args.dataset == 'mind_all_warm50':
+        if args.dataset == 'mind':
             self.news = pd.read_table(
                 news_path,
                 names=['id', 'category', 'subcategory', 'title', 'abstract', 'url', 'title_entities', 'abstract_entities'],
@@ -168,7 +168,7 @@ class BaseDataset(Dataset):
         self.behaviors_parsed['user'] = self.behaviors_parsed['user'].map(user2int)
         self.behaviors_parsed['user'] = self.behaviors_parsed['user'].fillna(0)
 
-        if args.dataset == 'mind' or args.dataset == 'mind_demo' or args.dataset == 'mind_demo_warm50' or args.dataset == 'mind_warm50' or args.dataset == 'mind_all' or args.dataset == 'mind_all_warm50':
+        if args.dataset == 'mind':
             self.news_parsed = pd.read_table(
                 news_path,
                 names=['id', 'category', 'subcategory', 'title', 'abstract', 'url', 'title_entities', 'abstract_entities'],

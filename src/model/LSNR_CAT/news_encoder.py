@@ -64,8 +64,17 @@ class NewsEncoder(torch.nn.Module):
 
         self.embedding_dim = self.plm.config.hidden_size
         self.sparse_dim = plm.config.vocab_size
+
+        self.multihead_self_attention = MultiHeadSelfAttention(
+            self.embedding_dim, config['num_attention_heads'])
         
-        self.regularizer = L1Regularizer(alpha=0.00012, T=3000)
+        self.additive_attention = AdditiveAttention(config['query_vector_dim'],
+                                                    self.embedding_dim) 
+        
+        self.regularizer = L1Regularizer(alpha=0.0012, T=10000)
+
+        self.projection = nn.Linear(self.embedding_dim, self.sparse_dim)
+        self.projection.weight = self.plm.cls.predictions.decoder.weight
 
         self.num_categories = config['num_categories'] + 1
 
@@ -82,10 +91,12 @@ class NewsEncoder(torch.nn.Module):
         category_vector[torch.arange(news['subcategory'].shape[0]), news['subcategory']] = 1
 
         # Sparse activation with learned temperature
-        logits = outputs.logits
+        outputs = outputs.hidden_states[-1]
+        outputs = self.multihead_self_attention(outputs)
+        outputs = self.additive_attention(outputs)
+        logits = self.projection(outputs)
         document_vector = torch.log1p(F.relu(logits))  # [batch, seq_len, vocab_size]
-        document_vector = torch.max(document_vector, dim=1).values
-
+        
         document_vector = torch.cat([document_vector, category_vector], dim=1)
 
         reg = self.regularizer(document_vector)

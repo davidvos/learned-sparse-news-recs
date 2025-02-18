@@ -1,11 +1,11 @@
 import torch
 from transformers import AutoModelForMaskedLM
-from model.SEQ_LSNR_CAT.news_encoder import NewsEncoder
-from model.SEQ_LSNR_CAT.user_encoder import UserEncoder
+from model.LSNR_CAT.news_encoder import NewsEncoder
+from model.LSNR_CAT.user_encoder import UserEncoder
 from model.general.click_predictor.dot_product import DotProductClickPredictor
 import torch.nn as nn
 
-class SEQ_LSNR_CAT(torch.nn.Module):
+class LSNR_CAT(torch.nn.Module):
     def __init__(self, config, device):
         super().__init__()
         self.plm = AutoModelForMaskedLM.from_pretrained(config['pretrained_model_name'])

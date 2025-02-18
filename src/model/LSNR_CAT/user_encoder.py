@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.SEQ_LSNR.news_encoder import NewsEncoder
 from model.general.attention.multihead_self import MultiHeadSelfAttention
 from model.general.attention.additive import AdditiveAttention
 import math
@@ -58,6 +57,24 @@ class L1Regularizer(nn.Module):
         else:
             pass
 
+# NEW: GatedProjection module for the output projection
+class GatedProjection(nn.Module):
+    def __init__(self, in_features, out_features, dropout_prob, plm):
+        super().__init__()
+        self.fc_gate = nn.Linear(in_features, out_features)        # computes the gate
+
+        # load weights from mlm head
+        self.fc_transform = nn.Linear(in_features, out_features)     # computes the transformation
+        self.fc_transform.weight = plm.cls.predictions.decoder.weight
+        
+        self.dropout = nn.Dropout(dropout_prob)
+
+    def forward(self, x):
+        # Compute gated output: dropout(sigmoid(gate) * tanh(transform))
+        gate = torch.sigmoid(self.fc_gate(x))
+        transform = torch.tanh(self.fc_transform(x))
+        return self.dropout(gate * transform)
+
 class UserEncoder(nn.Module):
     def __init__(self, config, plm, device):
         super().__init__()
@@ -83,7 +100,7 @@ class UserEncoder(nn.Module):
         ) 
         
         # Add time decay for temporal attention
-        max_history = config.get('max_history_length', 50)
+        max_history = 50
         self.time_decay = nn.Parameter(
             torch.exp(-torch.arange(max_history) / 10.0),  # exponential decay
             requires_grad=True
@@ -107,17 +124,18 @@ class UserEncoder(nn.Module):
             nn.Linear(self.reduced_dim, self.reduced_dim),
             nn.LayerNorm(self.reduced_dim),
             nn.GELU(),
-            
             nn.Dropout(self.dropout_prob),
             nn.Linear(self.reduced_dim, self.sparse_dim)
         )
         
+        self.gated_projection = GatedProjection(self.embedding_dim, self.sparse_dim, self.dropout_prob, plm)
+
         self.layer_norm1 = nn.LayerNorm(self.reduced_dim)
         self.layer_norm2 = nn.LayerNorm(self.reduced_dim)
         self.dropout = nn.Dropout(self.dropout_prob)
         
         # Weaker regularization for user embeddings
-        self.regularizer = L1Regularizer(alpha=0.0004, T=5000)
+        self.regularizer = L1Regularizer(alpha=0.004, T=10000)
 
     def forward(self, article_vectors):
         # Apply temporal decay
@@ -133,7 +151,7 @@ class UserEncoder(nn.Module):
         reduced_articles = self.dim_reduction(article_vectors)
         reduced_articles = self.dropout(reduced_articles)
         
-        # Add position embeddings
+        # Add position embeddings and normalize
         reduced_articles = reduced_articles + self.position_embedding[:, :reduced_articles.size(1), :]
         reduced_articles = self.layer_norm1(reduced_articles)
         
@@ -146,7 +164,7 @@ class UserEncoder(nn.Module):
         user_emb = self.additive_attention(attended)
         
         # Gated output projection
-        user_emb = self.output_projection(user_emb)
+        user_emb = self.gated_projection(user_emb)
         user_emb = torch.log1p(F.relu(user_emb))  # [batch, seq_len, vocab_size]
 
         # sum article_categories over the sequence length and normalize and then concat to user_emb

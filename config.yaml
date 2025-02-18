@@ -17,15 +17,15 @@ ebnerd:
   num_words_title: 32
   num_words_abstract: 50
 
-seq_lsnr:
-  model: 'seq_lsnr'
+lsnr:
+  model: 'lsnr'
   pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
 
-seq_lsnr_cat:
-  model: 'seq_lsnr_cat'
+lsnr_cat:
+  model: 'lsnr_cat'
   pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
   num_attention_heads: 16
   query_vector_dim: 200

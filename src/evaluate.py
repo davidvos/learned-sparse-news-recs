@@ -11,7 +11,11 @@ import torch.nn.functional as F
 
 from datasets import NewsDataset, BehaviorsDataset, UserDataset
 
-from model.SEQ_LSNR import SEQ_LSNR
+from model.LSNR import LSNR
+from model.LSNR_CAT import LSNR_CAT
+
+from model.NAMLBERT import NAMLBERT
+from model.LSTURBERT import LSTURBERT
 from model.NRMSBERT import NRMSBERT
 
 parser = argparse.ArgumentParser()
@@ -31,6 +35,16 @@ device = (
     torch.device("cuda") if torch.cuda.is_available() else
     torch.device("cpu")
 )
+
+# Add model registry
+MODEL_REGISTRY = {  
+    'nrms': NRMSBERT,
+    'naml': NAMLBERT,
+    'lstur': LSTURBERT,
+    
+    'lsnr': LSNR,
+    'lsnr_cat': LSNR_CAT
+}
 
 tokenizer = AutoTokenizer.from_pretrained(config[args.model]['pretrained_model_name'])
 
@@ -55,7 +69,7 @@ def eval(model, config, cold_threshold):
             news_ids = batch['id']
             news_text = batch['text']
 
-            if args.model == 'naml' or args.model == 'lstur' or args.model == 'seq_lsnr_cat':
+            if args.model == 'naml' or args.model == 'lstur' or args.model == 'lsnr_cat':
                 batch = {
                     'input_ids': batch['input_ids'].squeeze(1).to(device),
                     'attention_mask': batch['attention_mask'].squeeze(1).to(device),
@@ -67,7 +81,7 @@ def eval(model, config, cold_threshold):
             news_vectors = news_vectors.detach().cpu()
 
             for news_id, news_vector in zip(news_ids, news_vectors):
-                if args.dataset == 'mind' or args.dataset == 'mind_demo' or args.dataset == 'mind_demo_warm50' or args.dataset == 'mind_warm50' or args.dataset == 'mind_all' or args.dataset == 'mind_all_warm50':
+                if args.dataset == 'mind':
                     news2vector[str(news_id)] = news_vector
                 else:
                     news2vector[str(news_id.item())] = news_vector
@@ -101,7 +115,7 @@ def eval(model, config, cold_threshold):
                 for news_ids in batch['clicked_news']
             ]).transpose(0, 1).to(device)
             
-            if args.model in ['lstur', 'lsturlsrec']:
+            if args.model  == 'lstur':
                 vecs = model.get_user_vector(batch['user'].to(device), clicked_vectors)
             else:
                 vecs = model.get_user_vector(clicked_vectors)
@@ -146,9 +160,17 @@ def eval(model, config, cold_threshold):
     return np.nanmean(aucs), np.nanmean(mrrs), np.nanmean(ndcg5s), np.nanmean(ndcg10s)
 
 if __name__ == '__main__':
-    model = NRMSBERT(config[args.model], device)
 
-    checkpoint_path = latest_checkpoint(f'./checkpoints/nrms_nrms_mind_demo_warm50/')
+    model_name = args.model
+    dataset = args.dataset
+
+    if args.model not in MODEL_REGISTRY:
+        raise ValueError(f"Invalid model: {args.model}. Available models: {list(MODEL_REGISTRY.keys())}")
+    
+    model_class = MODEL_REGISTRY[args.model]
+    model = model_class(config[args.model], device)
+
+    checkpoint_path = latest_checkpoint(f'./checkpoints/{model_name}_{dataset}/')
     if checkpoint_path is None:
         print('No checkpoint file found!')
         exit()
@@ -159,13 +181,14 @@ if __name__ == '__main__':
     model.to(device)
     model.eval()
 
-    cold_threshold = 0
-    print(f"Evaluating {args.model} on {args.dataset} with cold_threshold {cold_threshold}")
-    
+    cold_thresholds = [1, 2, 3, 4, 5, 0]
 
-    auc, mrr, ndcg5, ndcg10 = eval(model, config, cold_threshold)
-    print(f'cold_threshold: {cold_threshold}')
+    for cold_threshold in cold_thresholds:
+        print(f"Evaluating {args.model} on {args.dataset} with cold_threshold {cold_threshold}")
 
-    print(
-        f'AUC: {auc:.4f}\nMRR: {mrr:.4f}\nnDCG@5: {ndcg5:.4f}\nnDCG@10: {ndcg10:.4f}'
-    )
+        auc, mrr, ndcg5, ndcg10 = eval(model, config, cold_threshold)
+        print(f'cold_threshold: {cold_threshold}')
+
+        print(
+            f'AUC: {auc:.4f}\nMRR: {mrr:.4f}\nnDCG@5: {ndcg5:.4f}\nnDCG@10: {ndcg10:.4f}'
+        )
