@@ -4,13 +4,18 @@ This repository contains the supporting material for the paper 'LSNR: Learned Sp
 
 ## Get Started
 
-1. Download this repository
-2. Open your Terminal in the main directory of this repository
-3. Pre-process the MIND and EBNeRD datasets by running the following command:
+1. ```git clone https://github.com/davidvos/learned-sparse-news-recs.git```
+2. ```cd learned-sparse-news-recs```
+3. ```pip install -r requirements.txt```
+4. Pre-process the MIND and EBNeRD datasets by running the following command:
 ```bash
 python src/data_preprocess_mind.py
 ```
-4. Train the model by running the following command:
 ```bash
 python src/data_preprocess_ebnerd.py
 ```
+5. Train a model by running the following command:
+```python src/train.py ---dataset mind --model lsnr```
+For the ```--dataset``` argument you can choose between 'mind' and 'ebnerd'. For the ```--model``` argument you can choose between 'lsnr' and 'lsnr_cat', 'nrms', 'naml' and 'lstur'.
+1. Evaluate the model by running the following command:
+```python src/evaluate.py```
