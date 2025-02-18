@@ -1,0 +1,116 @@
+nickname: 'cold_start_sparse'
+batch_size: 16
+num_workers: 4
+negative_sampling_ratio: 4
+eval_every: 1000
+num_epochs: 100000
+learning_rate: 0.00005         # Reduced to 2e-5 for more stable sparse learning
+
+mind: 
+  path: './data/mind'
+  num_clicked_news_a_user: 50
+  num_words_title: 32
+  num_words_abstract: 32
+
+mind_warm50:
+  path: './data/mind_warm50'
+  num_clicked_news_a_user: 50
+  num_words_title: 32
+  num_words_abstract: 32
+
+mind_demo: 
+  path: './data/mind_demo'
+  num_clicked_news_a_user: 50
+  num_words_title: 32
+  num_words_abstract: 32
+
+mind_demo_warm50: 
+  path: './data/mind_demo_warm50'
+  num_clicked_news_a_user: 50
+  num_words_title: 32
+  num_words_abstract: 32
+
+ebnerd:
+  path: './data/ebnerd'
+  num_clicked_news_a_user: 30
+  val_num_clicked_news_a_user: 5
+  num_words_title: 32
+
+ebnerd_demo_warm50:
+  path: './data/ebnerd_demo_warm50'
+  num_clicked_news_a_user: 30
+  val_num_clicked_news_a_user: 5
+  num_words_title: 32
+
+seq_lsnr:
+  model: 'seq_lsnr'
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  num_attention_heads: 16
+  query_vector_dim: 200
+  dropout_probability: 0.2
+
+nrms:
+  model: 'nrms'
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  num_attention_heads: 16
+  query_vector_dim: 200
+  dropout_probability: 0.2
+
+naml:
+  model: 'naml'
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  num_attention_heads: 16
+  query_vector_dim: 200
+  dropout_probability: 0.2
+  num_filters: 300
+  window_size: 3
+  # num_categories: 274
+  num_categories: 109
+  category_embedding_dim: 100
+
+seq_lsnr_cat:
+  model: 'seq_lsnr_cat'
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  num_attention_heads: 16
+  query_vector_dim: 200
+  dropout_probability: 0.2
+  num_filters: 768
+  window_size: 3
+  num_categories: 280
+  category_embedding_dim: 100
+
+lstur:
+  model: 'lstur'
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  num_attention_heads: 16
+  query_vector_dim: 200
+  dropout_probability: 0.2
+  num_filters: 300
+  window_size: 3
+  num_categories: 280
+  category_embedding_dim: 100
+  num_users: 94057
+
+lsturlsrec:
+  model: 'lstur'
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  num_attention_heads: 16
+  query_vector_dim: 200
+  dropout_probability: 0.2
+  num_filters: 300
+  window_size: 3
+  num_categories: 274
+  category_embedding_dim: 100
+  num_users: 94057
+
+attnamllsrec:
+  model: 'attnnamllsrec'
+  pretrained_model_name: 'bert-base-uncased'
+  num_attention_heads: 16
+  query_vector_dim: 200
+  dropout_probability: 0.2
+  num_filters: 300
+  window_size: 3
+  num_categories: 274
+  category_embedding_dim: 100
+  num_users: 94057
