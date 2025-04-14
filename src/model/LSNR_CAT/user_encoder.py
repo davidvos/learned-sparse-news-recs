@@ -3,17 +3,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 from model.general.attention.multihead_self import MultiHeadSelfAttention
 from model.general.attention.additive import AdditiveAttention
-import math
 
 class L1Regularizer(nn.Module):
+    """
+    L1 regularization term that increases over time.
+    This regularization term is used to encourage sparsity in user representations.
+    """
     def __init__(self, T: int = 5000, alpha: float = 0.02):
         """
-        Parameters
-        ---------
-        T: int 
-            number of warming up steps
-        alpha: float 
-            regularization weight
+        Initialize the L1 regularizer with a schedule for alpha.
+        Args:
+            T: number of steps for the regularization schedule
+            alpha: maximum value for the regularization term
         """
         super().__init__()
         self.T = T
@@ -23,16 +24,11 @@ class L1Regularizer(nn.Module):
 
     def forward(self, reps):
         """
-        Calculate L1 for an input tensor and perform a warming up step for the regularization weight
-        Parameters
-        ----------
-        reps: torch.Tensor
-            Two dimensional input Tensor
-        Returns
-        -------
-        torch.Tensor:
-            The result of L1 applied in the input tensor. 
-            L1(reps) = current_alpha * mean(L1(reps_i))
+        Compute the L1 regularization term.
+        Args:
+            reps: tensor of shape [batch_size, seq_len, embed_dim]
+        Returns:
+            reg: regularization term
         """
         reg = torch.abs(reps).sum(dim=1).mean() * self.current_alpha
         self.step()
@@ -40,16 +36,7 @@ class L1Regularizer(nn.Module):
 
     def step(self):
         """
-        Perform a warming up step. This warming up step would allow us to apply the regularization gradually,
-        step-by-step with increasing weight over time. Without this warming up, the loss might be overwhelmed by
-        the regularization right from the start, leading to the issue that the model produces very sparse but
-        not semantically useful vectors in the end.
-        Parameters
-        ----------
-        This method does not have any input parameters
-        Returns
-        -------
-        This method does not return anything
+        Update the current step and adjust the alpha value based on the schedule.
         """
         if self.current_step < self.T:
             self.current_step += 1
@@ -57,9 +44,20 @@ class L1Regularizer(nn.Module):
         else:
             pass
 
-# NEW: GatedProjection module for the output projection
 class GatedProjection(nn.Module):
+    """
+    Gated projection layer that computes a weighted sum of the input features using a gate and a transformation.
+    This layer is used to project the input features into a lower-dimensional space while maintaining important information.
+    """
     def __init__(self, in_features, out_features, dropout_prob, plm):
+        """
+        Gated projection layer that computes a weighted sum of the input features using a gate and a transformation.
+        Args:
+            in_features: number of input features
+            out_features: number of output features
+            dropout_prob: dropout probability
+            plm: pre-trained language model (for initializing weights)
+        """
         super().__init__()
         self.fc_gate = nn.Linear(in_features, out_features)        # computes the gate
 
@@ -70,13 +68,29 @@ class GatedProjection(nn.Module):
         self.dropout = nn.Dropout(dropout_prob)
 
     def forward(self, x):
-        # Compute gated output: dropout(sigmoid(gate) * tanh(transform))
+        """
+        Forward pass through the gated projection layer.
+        Args:
+            x: input tensor of shape [batch_size, seq_len, in_features]
+        Returns:
+            output: gated output tensor of shape [batch_size, seq_len, out_features]
+        """
         gate = torch.sigmoid(self.fc_gate(x))
         transform = torch.tanh(self.fc_transform(x))
         return self.dropout(gate * transform)
 
 class UserEncoder(nn.Module):
+    """
+    UserEncoder class for processing user interactions using a pre-trained language model (PLM).
+    This class applies multi-head self-attention and additive attention mechanisms to the processed user interactions.
+    """
     def __init__(self, config, plm, device):
+        """
+        Args:
+            config: configuration dictionary
+            plm: pre-trained language model
+            device: device to run the model on
+        """
         super().__init__()
         self.config = config
         self.device = device
@@ -86,9 +100,6 @@ class UserEncoder(nn.Module):
         self.embedding_dim = self.reduced_dim
         
         self.num_categories = config['num_categories'] + 1
-
-        # Use config dropout probability
-        self.dropout_prob = config['dropout_probability']
         
         # Increase number of attention heads for better temporal modeling
         self.multihead_self_attention = MultiHeadSelfAttention(
@@ -99,17 +110,6 @@ class UserEncoder(nn.Module):
             self.embedding_dim
         ) 
         
-        # Add time decay for temporal attention
-        max_history = 50
-        self.time_decay = nn.Parameter(
-            torch.exp(-torch.arange(max_history) / 10.0),  # exponential decay
-            requires_grad=True
-        )
-        
-        self.position_embedding = nn.Parameter(
-            torch.randn(1, max_history, self.embedding_dim) * 0.02  # smaller init
-        )
-        
         # Improved dimension reduction with gated mechanism
         self.dim_reduction = nn.Sequential(
             nn.Linear(self.sparse_dim, self.reduced_dim),
@@ -118,61 +118,31 @@ class UserEncoder(nn.Module):
             nn.Dropout(self.dropout_prob),
             nn.Linear(self.reduced_dim, self.reduced_dim)
         )
-        
-        # Add gating mechanism for output projection
-        self.output_projection = nn.Sequential(
-            nn.Linear(self.reduced_dim, self.reduced_dim),
-            nn.LayerNorm(self.reduced_dim),
-            nn.GELU(),
-            nn.Dropout(self.dropout_prob),
-            nn.Linear(self.reduced_dim, self.sparse_dim)
-        )
-        
+         
         self.gated_projection = GatedProjection(self.embedding_dim, self.sparse_dim, self.dropout_prob, plm)
-
-        self.layer_norm1 = nn.LayerNorm(self.reduced_dim)
-        self.layer_norm2 = nn.LayerNorm(self.reduced_dim)
-        self.dropout = nn.Dropout(self.dropout_prob)
         
         # Weaker regularization for user embeddings
         self.regularizer = L1Regularizer(alpha=0.004, T=10000)
 
     def forward(self, article_vectors):
-        # Apply temporal decay
-        seq_len = article_vectors.size(1)
+        """
+        Forward pass through the UserEncoder.
+        Args:
+            article_vectors: tensor of shape [batch_size, num_articles, sparse_dim]
+        Returns:
+            user_emb: user embedding tensor of shape [batch_size, reduced_dim]
+            reg: regularization term
+        """
+        user_emb = self.dim_reduction(article_vectors)
+        
+        user_emb = self.multihead_self_attention(user_emb)
 
-        article_vectors = article_vectors[:, :, :-self.num_categories]
-        article_categories = article_vectors[:, :, -self.num_categories:]
-
-        time_weights = self.time_decay[:seq_len].to(self.device)
-        article_vectors = article_vectors * time_weights[None, :, None]
-        
-        # Dimension reduction
-        reduced_articles = self.dim_reduction(article_vectors)
-        reduced_articles = self.dropout(reduced_articles)
-        
-        # Add position embeddings and normalize
-        reduced_articles = reduced_articles + self.position_embedding[:, :reduced_articles.size(1), :]
-        reduced_articles = self.layer_norm1(reduced_articles)
-        
-        # Self attention with residual
-        attended = self.multihead_self_attention(reduced_articles)
-        attended = reduced_articles + self.dropout(attended)
-        attended = self.layer_norm2(attended)
-        
-        # User embedding with additive attention
-        user_emb = self.additive_attention(attended)
-        
-        # Gated output projection
+        user_emb = self.additive_attention(user_emb)
+            
         user_emb = self.gated_projection(user_emb)
-        user_emb = torch.log1p(F.relu(user_emb))  # [batch, seq_len, vocab_size]
 
-        # sum article_categories over the sequence length and normalize and then concat to user_emb
-        article_categories = article_categories.sum(dim=1)
-        # article_categories = article_categories / article_categories.sum(dim=1, keepdim=True)
-        user_emb = torch.cat([user_emb, article_categories], dim=1)
-        
-        # Apply regularization
+        user_emb = torch.log1p(F.relu(user_emb)) 
+
         reg = self.regularizer(user_emb)
         
         return user_emb, reg

@@ -7,7 +7,14 @@ import yaml
 with open("./config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
-def parse_behaviors(behaviors_path, history_path, target):
+def parse_behaviors(behaviors_path, history_path, target_path):
+    """
+    Parse behaviors file in training set.
+    Args:
+        behaviors_path: source behaviors file
+        history_path: source history file
+        target_path: target behaviors file
+    """
 
     behaviors = pd.read_parquet(behaviors_path)
 
@@ -51,9 +58,17 @@ def parse_behaviors(behaviors_path, history_path, target):
     
     behaviors = behaviors.rename(columns={'user_id': 'user'})
 
-    behaviors.to_csv(target, sep='\t', index=False, columns=['user', 'clicked_news', 'candidate_news', 'clicked'])
+    behaviors.to_csv(target_path, sep='\t', index=False, columns=['user', 'clicked_news', 'candidate_news', 'clicked'])
 
-def parse_val_behaviors(behaviors_path, history_path, target, cold_threshold):
+def parse_val_behaviors(behaviors_path, history_path, target_path, cold_threshold):
+    """
+    Parse behaviors file in evaluation set.
+    Args:
+        behaviors_path: source behaviors file
+        history_path: source history file
+        target_path: target behaviors file
+        cold_threshold: threshold for cold start
+    """
 
     behaviors = pd.read_parquet(behaviors_path)
 
@@ -75,9 +90,15 @@ def parse_val_behaviors(behaviors_path, history_path, target, cold_threshold):
 
     behaviors = behaviors.rename(columns={'user_id': 'user', 'impression_time': 'time'})
     
-    behaviors.to_csv(target, sep='\t', index=False, columns=['impression_id', 'user', 'time', 'clicked_news', 'impressions', 'candidate_news', 'clicked'], header=False)
+    behaviors.to_csv(target_path, sep='\t', index=False, columns=['impression_id', 'user', 'time', 'clicked_news', 'impressions', 'candidate_news', 'clicked'], header=False)
 
-def parse_news(news_path, target):
+def parse_news(news_path, target_path):
+    """
+    Parse news file.
+    Args:
+        news_path: source news file
+        target_path: target news file
+    """
     news = pd.read_parquet(news_path)
     news = news[['article_id', 'category', 'subcategory', 'title', 'body', 'url']]
 
@@ -94,7 +115,7 @@ def parse_news(news_path, target):
     
     news['subcategory'] = news['subcategory'].apply(lambda x: x[0] if len(x) > 0 else 0)
 
-    news.to_csv(target, sep='\t', index=False, header=False)
+    news.to_csv(target_path, sep='\t', index=False, header=False)
 
 if __name__ == '__main__':
 
@@ -104,9 +125,7 @@ if __name__ == '__main__':
     val_dir = f'{base}/val'
     test_dir = f'{base}/test'
 
-    print('Process data for training')
-
-    print('Parse behaviors')
+    parse_news
     
     parse_behaviors(path.join(train_dir, 'behaviors.parquet'),
                     path.join(train_dir, f'history.parquet'),

@@ -44,24 +44,51 @@ class NRMSBERT(torch.nn.Module):
         Returns:
           click_probability: batch_size, 1 + K
         """
-        # batch_size, 1 + K, word_embedding_dim
-        candidate_news_vector = torch.stack(
-            [self.news_encoder(x) for x in candidate_news], dim=1)
+        # Batch process candidate news
+        num_candidates = len(candidate_news)
+        batch_size = candidate_news[0]['input_ids'].shape[0]
         
-        # batch_size, num_clicked_news_a_user, word_embedding_dim
-        clicked_news_vector = torch.stack(
-            [self.news_encoder(x) for x in clicked_news], dim=1)
+        # Concatenate all candidate news into a single batch
+        batched_candidate = {
+            'input_ids': torch.cat([news['input_ids'] for news in candidate_news], dim=0),
+            'attention_mask': torch.cat([news['attention_mask'] for news in candidate_news], dim=0),
+        }
 
+        print(batched_candidate['input_ids'].shape)
+        
+        # Process all candidate news in a single forward pass
+        candidate_vecs_batched = self.news_encoder(batched_candidate)
+        
+        # Reshape results back to original structure: batch_size, num_candidates, embedding_dim
+        candidate_news_vector = candidate_vecs_batched.view(num_candidates, batch_size, -1).transpose(0, 1)
+        
+        # Batch process clicked news
+        num_clicked = len(clicked_news)
+        
+        # Concatenate all clicked news into a single batch
+        batched_clicked = {
+            'input_ids': torch.cat([news['input_ids'] for news in clicked_news], dim=0),
+            'attention_mask': torch.cat([news['attention_mask'] for news in clicked_news], dim=0),
+        }
+        
+        # Process all clicked news in a single forward pass
+        clicked_vecs_batched = self.news_encoder(batched_clicked)
+        
+        # Reshape results: batch_size, num_clicked, embedding_dim
+        clicked_news_vector = clicked_vecs_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
+        
+        # Apply mask to clicked news vectors
         clicked_news_mask_tensor = torch.stack(clicked_news_mask).to(self.device)
         clicked_news_mask_tensor = clicked_news_mask_tensor.transpose(0, 1)
         expanded_mask = clicked_news_mask_tensor.unsqueeze(-1)
         clicked_news_vector = clicked_news_vector * expanded_mask
-
-        # batch_size, word_embedding_dim
+        
+        # Get user vector
         user_vector = self.user_encoder(clicked_news_vector)
-        # batch_size, 1 + K
+        
+        # Compute click probability
         click_probability = self.click_predictor(candidate_news_vector, user_vector)
-
+        
         return click_probability
 
     def get_news_vector(self, news):

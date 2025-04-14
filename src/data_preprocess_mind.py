@@ -17,18 +17,15 @@ import yaml
 with open("./config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
-def parse_behaviors(source, target):
+def parse_behaviors(source_path, target_path):
     """
     Parse behaviors file in training set.
     Args:
         source: source behaviors file
         target: target behaviors file
-        user2int_path: path for saving user2int file
     """
-    print(f"Parse {source}")
-
     behaviors = pd.read_table(
-        source,
+        source_path,
         header=None,
         names=['impression_id', 'user', 'time', 'clicked_news', 'impressions'])
     behaviors.clicked_news.fillna(' ', inplace=True)
@@ -62,22 +59,21 @@ def parse_behaviors(source, target):
                 [e.split('-')[1] for e in x]))).tolist())
     
     behaviors.to_csv(
-        target,
+        target_path,
         sep='\t',
         index=False,
         columns=['user', 'clicked_news', 'candidate_news', 'clicked'])
     
-def parse_eval_behaviors(source, target, cold_threshold):
+def parse_eval_behaviors(source_path, target_path, cold_threshold):
     """
     Parse behaviors file in evaluation set.
     Args:
         source: source behaviors file
         target: target behaviors file
+        cold_threshold: threshold for cold start
     """
-    print(f"Parse {source}")
-
     behaviors = pd.read_table(
-        source,
+        source_path,
         header=None,
         names=['impression_id', 'user', 'time', 'clicked_news', 'impressions'])
     behaviors.clicked_news.fillna(' ', inplace=True)
@@ -97,7 +93,7 @@ def parse_eval_behaviors(source, target, cold_threshold):
         lambda x: ' '.join(x))
     
     behaviors.to_csv(
-        target,
+        target_path,
         sep='\t',
         index=False,
         header=False,

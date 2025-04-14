@@ -5,14 +5,16 @@ from model.general.attention.multihead_self import MultiHeadSelfAttention
 from model.general.attention.additive import AdditiveAttention
 
 class L1Regularizer(nn.Module):
+    """
+    L1 regularization term that increases over time.
+    This regularization term is used to encourage sparsity in news representations.
+    """
     def __init__(self, T: int = 5000, alpha: float = 0.06):
         """
-        Parameters
-        ---------
-        T: int 
-            number of warming up steps
-        alpha: float 
-            regularization weight
+        Initialize the L1 regularizer with a schedule for alpha.
+        Args:
+            T: number of steps for the regularization schedule
+            alpha: maximum value for the regularization term
         """
         super().__init__()
         self.T = T
@@ -22,16 +24,11 @@ class L1Regularizer(nn.Module):
 
     def forward(self, reps):
         """
-        Calculate L1 for an input tensor and perform a warming up step for the regularization weight
-        Parameters
-        ----------
-        reps: torch.Tensor
-            Two dimensional input Tensor
-        Returns
-        -------
-        torch.Tensor:
-            The result of L1 applied in the input tensor. 
-            L1(reps) = current_alpha * mean(L1(reps_i))
+        Compute the L1 regularization term.
+        Args:
+            reps: tensor of shape [batch_size, seq_len, embed_dim]
+        Returns:
+            reg: regularization term
         """
         reg = torch.abs(reps).sum(dim=1).mean() * self.current_alpha
         self.step()
@@ -39,16 +36,7 @@ class L1Regularizer(nn.Module):
 
     def step(self):
         """
-        Perform a warming up step. This warming up step would allow us to apply the regularization gradually,
-        step-by-step with increasing weight over time. Without this warming up, the loss might be overwhelmed by
-        the regularization right from the start, leading to the issue that the model produces very sparse but
-        not semantically useful vectors in the end.
-        Parameters
-        ----------
-        This method does not have any input parameters
-        Returns
-        -------
-        This method does not return anything
+        Update the current step and adjust the alpha value based on the schedule.
         """
         if self.current_step < self.T:
             self.current_step += 1
@@ -57,7 +45,17 @@ class L1Regularizer(nn.Module):
             pass
 
 class NewsEncoder(torch.nn.Module):
+    """
+    NewsEncoder class for processing news articles using a pre-trained language model (PLM).
+    This class applies multi-head self-attention and additive attention mechanisms to the processed news articles.
+    """
     def __init__(self, config, plm, device):
+        """
+        Args:
+            config: configuration dictionary
+            plm: pre-trained language model
+            device: device to run the model on
+        """
         super().__init__()
         self.plm = plm
         self.device = device
@@ -79,7 +77,14 @@ class NewsEncoder(torch.nn.Module):
         self.num_categories = config['num_categories'] + 1
 
     def forward(self, news):
-
+        """
+        Forward pass through the NewsEncoder.
+        Args:
+            news: dictionary containing input_ids, attention_mask, category, and subcategory
+        Returns:
+            document_vector: processed document vector
+            reg: regularization term
+        """
         # Process text through PLM
         outputs = self.plm(
             input_ids=news["input_ids"].squeeze(1).to(self.device),

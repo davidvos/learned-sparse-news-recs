@@ -1,5 +1,5 @@
-batch_size: 32
-num_workers: 4
+batch_size: 4
+num_workers: 0
 negative_sampling_ratio: 4
 eval_every: 1000
 num_epochs: 100
@@ -19,14 +19,14 @@ ebnerd:
 
 lsnr:
   model: 'lsnr'
-  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
 
 lsnr_cat:
   model: 'lsnr_cat'
-  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
@@ -40,14 +40,14 @@ lsnr_cat:
 
 nrms:
   model: 'nrms'
-  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
 
 naml:
   model: 'naml'
-  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
@@ -59,7 +59,7 @@ naml:
 
 lstur:
   model: 'lstur'
-  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2

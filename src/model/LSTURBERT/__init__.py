@@ -48,8 +48,6 @@ class LSTURBERT(torch.nn.Module):
         Returns:
             click_probability: batch_size
         """
-
-
         # batch_size, 1 + K, num_filters
         candidate_news_vector = torch.stack(
             [self.news_encoder(x) for x in candidate_news], dim=1)

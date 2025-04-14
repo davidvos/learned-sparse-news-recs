@@ -19,6 +19,12 @@ class NewsDataset(Dataset):
     Load news for evaluation.
     """
     def __init__(self, news_path, pretrained_model_name, model_name):
+        """
+        Args:
+            news_path: path to news file
+            pretrained_model_name: name of the pretrained model
+            model_name: name of the model
+        """
         super(NewsDataset, self).__init__()
 
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
@@ -82,6 +88,11 @@ class BehaviorsDataset(Dataset):
     Load behaviors for evaluation, (user, time) pair as session
     """
     def __init__(self, behaviors_path, max_length=5):
+        """
+        Args:
+            behaviors_path: path to behaviors file
+            max_length: maximum length of clicked news
+        """
         super(BehaviorsDataset, self).__init__()
         self.behaviors = pd.read_table(behaviors_path,
                                        header=None,
@@ -117,6 +128,10 @@ class UserDataset(Dataset):
     Load users for evaluation, duplicated rows will be dropped
     """
     def __init__(self, behaviors_path):
+        """
+        Args:
+            behaviors_path: path to behaviors file
+        """
         super(UserDataset, self).__init__()
         self.behaviors = pd.read_table(behaviors_path,
                                        header=None,

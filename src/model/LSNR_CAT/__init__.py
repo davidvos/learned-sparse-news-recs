@@ -6,10 +6,20 @@ from model.general.click_predictor.dot_product import DotProductClickPredictor
 import torch.nn as nn
 
 class LSNR_CAT(torch.nn.Module):
+    """
+    LSNR_CAT class for processing news articles and user interactions using a pre-trained language model (PLM).
+    """
     def __init__(self, config, device):
+        """
+        Initialize the LSNR_CAT model with a pre-trained language model (PLM) and device.
+        Args:
+            config: configuration dictionary
+            device: device to run the model on
+        """
         super().__init__()
-        self.plm = AutoModelForMaskedLM.from_pretrained(config['pretrained_model_name'])
+        self.plm = AutoModelForMaskedLM.from_pretrained(config['pretrained_model_name'], output_hidden_states=True)
 
+        # Freeze the first 8 layers of the PLM
         for layer in self.plm.bert.encoder.layer[:8]:
             for param in layer.parameters():
                 param.requires_grad = False
@@ -24,56 +34,98 @@ class LSNR_CAT(torch.nn.Module):
         self.reg_scale = nn.Parameter(torch.tensor(0.5))
         
     def forward(self, candidate_news, clicked_news, clicked_news_mask):
-        # Compute candidate news vectors
-        candidate_vecs = [self.news_encoder(x)[0] for x in candidate_news]
+        """
+        Forward pass through the LSNR_CAT model.
+        Args:
+            candidate_news: list of candidate news articles
+            clicked_news: list of clicked news articles
+            clicked_news_mask: mask for clicked news articles
+        Returns:
+            click_prob: predicted click probabilities
+            total_reg: total regularization term
+        """
+        num_candidates = len(candidate_news)
+        batch_size = candidate_news[0]['input_ids'].shape[0]
+        
+        # Concatenate all candidate news into a single batch
+        batched_candidate = {
+            'input_ids': torch.cat([news['input_ids'] for news in candidate_news], dim=0),
+            'attention_mask': torch.cat([news['attention_mask'] for news in candidate_news], dim=0),
+            'category': torch.cat([news['category'] for news in candidate_news], dim=0),
+            'subcategory': torch.cat([news['subcategory'] for news in candidate_news], dim=0),
+        }
+        
+        # Process all candidate news in a single forward pass
+        candidate_vecs_batched, candidate_reg_batched = self.news_encoder(batched_candidate)
+        
+        # Reshape results back to original structure: [num_candidates*batch_size, embed_dim] -> [batch_size, num_candidates, embed_dim]
+        candidate_vecs = candidate_vecs_batched.view(num_candidates, batch_size, -1).transpose(0, 1)
+        
+        # Process regularization
+        news_reg = torch.mean(candidate_reg_batched)
 
-        # Compute clicked news vectors
-        clicked_outputs = [self.news_encoder(x) for x in clicked_news]
-        clicked_vecs = torch.stack([output[0] for output in clicked_outputs], dim=1)
-
+        # Batch process clicked news
+        num_clicked = len(clicked_news)
+        
+        # Concatenate all clicked news into a single batch
+        batched_clicked = {
+            'input_ids': torch.cat([news['input_ids'] for news in clicked_news], dim=0),
+            'attention_mask': torch.cat([news['attention_mask'] for news in clicked_news], dim=0),
+            'category': torch.cat([news['category'] for news in clicked_news], dim=0),
+            'subcategory': torch.cat([news['subcategory'] for news in clicked_news], dim=0),
+        }
+        
+        # Process all clicked news in a single forward pass
+        clicked_vecs_batched, _ = self.news_encoder(batched_clicked)
+        
+        # Reshape results: [num_clicked*batch_size, embed_dim] -> [batch_size, num_clicked, embed_dim]
+        clicked_vecs = clicked_vecs_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
+        
+        # Apply mask to clicked news vectors
         clicked_news_mask_tensor = torch.stack(clicked_news_mask).to(self.device)
         clicked_news_mask_tensor = clicked_news_mask_tensor.transpose(0, 1)
         expanded_mask = clicked_news_mask_tensor.unsqueeze(-1)
         clicked_vecs = clicked_vecs * expanded_mask
-
+        
+        # Get user vector and user regularization
         user_vec, user_reg = self.user_encoder(clicked_vecs)
         
         # Scale regularization terms over both news and user
-        news_reg = torch.mean(torch.stack([self.news_encoder.regularizer(v) for v in candidate_vecs]))
         total_reg = (user_reg + news_reg) * self.reg_scale
         
         # Compute click prediction
-        click_prob = self.click_predictor(torch.stack(candidate_vecs, dim=1), user_vec)
+        click_prob = self.click_predictor(candidate_vecs, user_vec)
+        
         return click_prob, total_reg
     
     def get_news_vector(self, news):
         """
+        Get the vector representation of a news article.
         Args:
-            news:
-                {
-                    "title": batch_size x num_words_title
-                },
+            news: dictionary containing 'input_ids' and 'attention_mask'
         Returns:
-            (shape) batch_size x word_embedding_dim
+            news_vector: processed news representation
         """
         return self.news_encoder(news)[0]
 
     def get_user_vector(self, clicked_news_vector):
         """
+        Get the vector representation of clicked news articles.
         Args:
-            clicked_news_vector: batch_size x num_clicked_news x word_embedding_dim
+            clicked_news_vector: tensor of shape [batch_size, num_clicked, embed_dim]
         Returns:
-            (shape) batch_size x word_embedding_dim
+            user_vector: processed user representation
         """
         return self.user_encoder(clicked_news_vector)[0]
 
     def get_prediction(self, news_vector, user_vector):
         """
+        Get the click prediction for a specific news article and user.
         Args:
-            news_vector: candidate_size x word_embedding_dim
-            user_vector: word_embedding_dim
+            news_vector: tensor of shape [1, embed_dim]
+            user_vector: tensor of shape [1, embed_dim]
         Returns:
-            click_probability: candidate_size
+            click_prob: predicted click probability
         """
         return self.click_predictor(
             news_vector.unsqueeze(dim=0),
