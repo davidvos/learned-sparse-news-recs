@@ -168,9 +168,7 @@ if __name__ == '__main__':
         raise ValueError(f"Invalid model: {args.model}. Available models: {list(MODEL_REGISTRY.keys())}")
     
     model_class = MODEL_REGISTRY[args.model]
-
-    model = NRMS_BERT(config)
-    # model = model_class(config[args.model], device)
+    model = model_class(config[args.model], device)
 
     checkpoint_path = latest_checkpoint(f'./checkpoints/{model_name}_{dataset}/')
     if checkpoint_path is None:

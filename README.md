@@ -25,7 +25,7 @@ cd learned-sparse-news-recs
 ```bash
 # unzip folder into existing folder
 unzip MINDsmall_train.zip -d data/mind/train
-unzip MINDsmall_dev.zip -d data/mind/dev
+unzip MINDsmall_dev.zip -d data/mind/val
 ```
 This will allow pre-processing and training on the MIND dataset for regaular and cold-start users.
 5. Install the required packages by running the following command:
@@ -48,7 +48,7 @@ python src/data_preprocess_ebnerd_zero_shot.py
 ```
 7. For the ```--dataset``` argument you can choose between 'mind', 'ebnerd', 'mind_zero_shot_news_sports', 'mind_zero_shot_sports_news', 'ebnerd_zero_shot_news_sports' and 'ebnerd_zero_shot_news_sports'. For the ```--model``` argument you can choose between 'lsnr' and 'lsnr_cat', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
 ```bash
-python src/train.py ---dataset mind --model lsnr
+python src/train.py --dataset mind --model lsnr
 ```
 8. Evaluate the model by running the following command:
 ```bash
