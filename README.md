@@ -1,6 +1,6 @@
 # LSNR: Learned Sparse News Recommendations
 
-This repository contains the supporting material for the paper 'LSNR: Learned Sparse News Recommendations for Cold-Start Users'.
+This repository contains the supporting material for the paper 'Learned Sparse News Recommendations for Topical Distribution Shifts in Zero-Shot and User Cold-Start Settings'.
 
 News recommendation approaches typically rely on long sequences of user interactions to learn dense representations that model the dynamics between users and news articles. This reliance makes it challenging for current approaches to recommend relevant news under topical distribution shifts, such as in out-of-domain settings and for cold-start users with limited previous interactions. We hypothesize that learned sparse embeddings can better tackle the problem of these distribution shifts by using lexical matching signals than dense representation methods. We propose learned sparse news recommendations (LSNR), a news recommendation approach that uses lexical embeddings for users and news articles. Experiments on two benchmark datasets demonstrate that LSNR is more robust under topical distribution shifts than dense representation methods. LSNR outperforms existing news recommendation methods based on dense representations in zero-shot out-of-domain and user cold-start scenarios.
 
