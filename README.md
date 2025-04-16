@@ -23,7 +23,6 @@ cd learned-sparse-news-recs
    * [EBNeRD](https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_small.zip)
 4. Unzip the downloaded files and put the unzipped files in the folders of the dataset that you want to pre-process and use. For example: 
 ```bash
-# unzip folder into existing folder
 unzip MINDsmall_train.zip -d data/mind/train
 unzip MINDsmall_dev.zip -d data/mind/val
 ```
