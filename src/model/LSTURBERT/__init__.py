@@ -10,19 +10,20 @@ class LSTURBERT(torch.nn.Module):
     NAML network.
     Input 1 + K candidate news and a list of user clicked news, produce the click probability.
     """
-    def __init__(self, config, device):
+    def __init__(self, model_config, dataset_config, device):
         super(LSTURBERT, self).__init__()
-        self.config = config
+        self.model_config = model_config
+        self.dataset_config = dataset_config
 
-        self.plm = AutoModel.from_pretrained(config['pretrained_model_name'])
+        self.plm = AutoModel.from_pretrained(dataset_config['pretrained_model_name'])
         self.embedding_dim = self.plm.config.hidden_size
         self.device = device
 
-        self.news_encoder = NewsEncoder(config, self.plm, device)
-        self.user_encoder = UserEncoder(config, self.plm)
+        self.news_encoder = NewsEncoder(model_config, self.plm, device)
+        self.user_encoder = UserEncoder(model_config, self.plm)
         self.click_predictor = DotProductClickPredictor()
 
-        self.user_embedding = nn.Embedding(config['num_users'] + 1, self.embedding_dim, padding_idx=0)
+        self.user_embedding = nn.Embedding(model_config['num_users'] + 1, self.embedding_dim, padding_idx=0)
 
     def forward(self, candidate_news, clicked_news, clicked_news_mask, user):
         """
@@ -55,6 +56,7 @@ class LSTURBERT(torch.nn.Module):
         clicked_news_vector = torch.stack(
             [self.news_encoder(x) for x in clicked_news], dim=1)
         
+        # Apply mask to clicked news vectors
         clicked_news_mask_tensor = torch.stack(clicked_news_mask).to(self.device)
         clicked_news_mask_tensor = clicked_news_mask_tensor.transpose(0, 1)
         expanded_mask = clicked_news_mask_tensor.unsqueeze(-1)
@@ -96,14 +98,4 @@ class LSTURBERT(torch.nn.Module):
         return self.user_encoder(user, clicked_news_vector)
 
     def get_prediction(self, news_vector, user_vector):
-        """
-        Args:
-            news_vector: candidate_size, word_embedding_dim
-            user_vector: word_embedding_dim
-        Returns:
-            click_probability: candidate_size
-        """
-        # candidate_size
-        return self.click_predictor(
-            news_vector.unsqueeze(dim=0),
-            user_vector.unsqueeze(dim=0)).squeeze(dim=0)
+        return self.click_predictor(news_vector, user_vector)

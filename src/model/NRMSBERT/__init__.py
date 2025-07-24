@@ -9,20 +9,17 @@ class NRMSBERT(torch.nn.Module):
     NRMS network.
     Input 1 + K candidate news and a list of user clicked news, produce the click probability.
     """
-    def __init__(self, config, device):
+    def __init__(self, model_config, dataset_config, device):
         super(NRMSBERT, self).__init__()
-        self.config = config
+        self.model_config = model_config
+        self.dataset_config = dataset_config
 
-        self.plm = AutoModel.from_pretrained(config['pretrained_model_name'])
-
-        for layer in self.plm.encoder.layer[:8]:
-            for param in layer.parameters():
-                param.requires_grad = False
+        self.plm = AutoModel.from_pretrained(dataset_config['pretrained_model_name'])
                 
         self.device = device
 
-        self.news_encoder = NewsEncoder(config, self.plm, device)
-        self.user_encoder = UserEncoder(config, self.plm, device)
+        self.news_encoder = NewsEncoder(model_config, self.plm, device)
+        self.user_encoder = UserEncoder(model_config, self.plm, device)
         self.click_predictor = DotProductClickPredictor()
 
 
@@ -53,8 +50,6 @@ class NRMSBERT(torch.nn.Module):
             'input_ids': torch.cat([news['input_ids'] for news in candidate_news], dim=0),
             'attention_mask': torch.cat([news['attention_mask'] for news in candidate_news], dim=0),
         }
-
-        print(batched_candidate['input_ids'].shape)
         
         # Process all candidate news in a single forward pass
         candidate_vecs_batched = self.news_encoder(batched_candidate)
@@ -75,16 +70,16 @@ class NRMSBERT(torch.nn.Module):
         clicked_vecs_batched = self.news_encoder(batched_clicked)
         
         # Reshape results: batch_size, num_clicked, embedding_dim
-        clicked_news_vector = clicked_vecs_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
+        clicked_vecs = clicked_vecs_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
         
         # Apply mask to clicked news vectors
         clicked_news_mask_tensor = torch.stack(clicked_news_mask).to(self.device)
         clicked_news_mask_tensor = clicked_news_mask_tensor.transpose(0, 1)
         expanded_mask = clicked_news_mask_tensor.unsqueeze(-1)
-        clicked_news_vector = clicked_news_vector * expanded_mask
+        clicked_vecs = clicked_vecs * expanded_mask
         
         # Get user vector
-        user_vector = self.user_encoder(clicked_news_vector)
+        user_vector = self.user_encoder(clicked_vecs)
         
         # Compute click probability
         click_probability = self.click_predictor(candidate_news_vector, user_vector)
@@ -115,14 +110,4 @@ class NRMSBERT(torch.nn.Module):
         return self.user_encoder(clicked_news_vector)
 
     def get_prediction(self, news_vector, user_vector):
-        """
-        Args:
-            news_vector: candidate_size, word_embedding_dim
-            user_vector: word_embedding_dim
-        Returns:
-            click_probability: candidate_size
-        """
-        # candidate_size
-        return self.click_predictor(
-            news_vector.unsqueeze(dim=0),
-            user_vector.unsqueeze(dim=0)).squeeze(dim=0)
+        return self.click_predictor(news_vector, user_vector)

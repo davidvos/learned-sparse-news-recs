@@ -40,7 +40,8 @@ class L1Regularizer(nn.Module):
         """
         if self.current_step < self.T:
             self.current_step += 1
-            self.current_alpha = (self.current_step / self.T) ** 2 * self.max_alpha
+            # Use linear schedule instead of quadratic for more stable training
+            self.current_alpha = (self.current_step / self.T) * self.max_alpha
         else:
             pass
 
@@ -128,7 +129,7 @@ class UserEncoder(nn.Module):
         self.gated_projection = GatedProjection(self.embedding_dim, self.sparse_dim, self.dropout_prob, plm)
         
         # Weaker regularization for user embeddings
-        self.regularizer = L1Regularizer(alpha=0.004, T=10000)
+        self.regularizer = L1Regularizer(alpha=0.0003, T=10000)  # Reduced from 0.004
 
     def forward(self, article_vectors):
         """
@@ -146,7 +147,9 @@ class UserEncoder(nn.Module):
         user_emb = self.additive_attention(user_emb)
 
         user_emb = self.gated_projection(user_emb)
-        user_emb = torch.log1p(F.relu(user_emb))
+        # Use log1p for sparse representations (standard in SPLADE)
+        # This preserves sparsity better than softplus
+        user_emb = torch.log1p(torch.relu(user_emb))
         
         # Apply regularization
         reg = self.regularizer(user_emb)

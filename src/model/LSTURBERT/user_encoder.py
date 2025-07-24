@@ -6,7 +6,7 @@ class UserEncoder(torch.nn.Module):
     def __init__(self, config, plm):
         super(UserEncoder, self).__init__()
         self.config = config
-        self.embedding_dim = plm.config.hidden_size * 3  # *3 because news vectors are concatenated (title, category, subcategory)
+        self.embedding_dim = plm.config.hidden_size
         
         # Replace additive attention with GRU
         self.gru = nn.GRU(

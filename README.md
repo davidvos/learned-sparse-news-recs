@@ -29,21 +29,33 @@ cd learned-sparse-news-recs
 unzip MINDsmall_train.zip -d data/mind/train
 unzip MINDsmall_dev.zip -d data/mind/val
 ```
-This will allow pre-processing and training on the MIND dataset for regaular and cold-start users.
 
-5. Install the required packages by running the following command:
+5. To create folder for the out-of-distribution setting we need to copy the MIND and EBNeRD datasets to the new folder. You can do this by running the following commands:
+```bash
+mkdir data/mind_zero_shot_news_sports
+mkdir data/mind_zero_shot_sports_news
+mkdir data/ebnerd_zero_shot_news_sports
+mkdir data/ebnerd_zero_shot_news_sports
+
+cp -r data/mind data/mind_news
+cp -r data/mind data/mind_sports
+cp -r data/ebnerd data/ebnerd_nyheder
+cp -r data/ebnerd data/ebnerd_sport
+```
+
+6. Install the required packages by running the following command:
 ```bash
 pip install -r requirements.txt
 ```
 
-6. Pre-process the MIND and EBNeRD datasets by running the following commands:
+7. Pre-process the MIND and EBNeRD datasets by running the following commands:
 ```bash
 python src/data_preprocess_mind.py
 ```
 ```bash
 python src/data_preprocess_ebnerd.py
 ```
-These commands will pre-process the data for the regular and user cold-start settings. To pre-process the data for the zero-shot setting, modify and run the following commands:
+These commands will pre-process the data for the regular and user cold-start settings. To pre-process the data for the out-of-distrubution setting, we first need to 
 ```bash
 python src/data_preprocess_mind_zero_shot.py
 ```
@@ -51,12 +63,12 @@ python src/data_preprocess_mind_zero_shot.py
 python src/data_preprocess_ebnerd_zero_shot.py
 ```
 
-7. For the ```--dataset``` argument you can choose between 'mind', 'ebnerd', 'mind_zero_shot_news_sports', 'mind_zero_shot_sports_news', 'ebnerd_zero_shot_news_sports' and 'ebnerd_zero_shot_news_sports'. For the ```--model``` argument you can choose between 'lsnr' and 'lsnr_cat', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
+8. For the ```--dataset``` argument you can choose between 'mind', 'ebnerd', 'mind_zero_shot_news_sports', 'mind_zero_shot_sports_news', 'ebnerd_zero_shot_news_sports' and 'ebnerd_zero_shot_news_sports'. For the ```--model``` argument you can choose between 'lsnr' and 'lsnr_cat', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
 ```bash
 python src/train.py --dataset mind --model lsnr
 ```
 
-8. Evaluate the model by running the following command:
+9. Evaluate the model by running the following command:
 ```bash
 python src/evaluate.py --dataset mind --model lsnr
 ```

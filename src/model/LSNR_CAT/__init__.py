@@ -9,29 +9,24 @@ class LSNR_CAT(torch.nn.Module):
     """
     LSNR_CAT class for processing news articles and user interactions using a pre-trained language model (PLM).
     """
-    def __init__(self, config, device):
+    def __init__(self, model_config, dataset_config, device):
         """
         Initialize the LSNR_CAT model with a pre-trained language model (PLM) and device.
         Args:
-            config: configuration dictionary
+            model_config: model-specific configuration dictionary
+            dataset_config: dataset-specific configuration dictionary
             device: device to run the model on
         """
         super().__init__()
-        self.plm = AutoModelForMaskedLM.from_pretrained(config['pretrained_model_name'], output_hidden_states=True)
-
-        # Freeze the first 8 layers of the PLM
-        for layer in self.plm.bert.encoder.layer[:8]:
-            for param in layer.parameters():
-                param.requires_grad = False
+        self.model_config = model_config
+        self.dataset_config = dataset_config
+        self.plm = AutoModelForMaskedLM.from_pretrained(dataset_config['pretrained_model_name'], output_hidden_states=True)
         
         self.device = device
 
-        self.news_encoder = NewsEncoder(config, self.plm, device)
-        self.user_encoder = UserEncoder(config, self.plm, device)
+        self.news_encoder = NewsEncoder(model_config, self.plm, device)
+        self.user_encoder = UserEncoder(model_config, self.plm, device)
         self.click_predictor = DotProductClickPredictor()
-        
-        # Add a scaling factor for regularization
-        self.reg_scale = nn.Parameter(torch.tensor(0.5))
         
     def forward(self, candidate_news, clicked_news, clicked_news_mask):
         """
@@ -42,7 +37,7 @@ class LSNR_CAT(torch.nn.Module):
             clicked_news_mask: mask for clicked news articles
         Returns:
             click_prob: predicted click probabilities
-            total_reg: total regularization term
+            regularization: regularization term (always 0 for LSNR_CAT)
         """
         num_candidates = len(candidate_news)
         batch_size = candidate_news[0]['input_ids'].shape[0]
@@ -56,14 +51,11 @@ class LSNR_CAT(torch.nn.Module):
         }
         
         # Process all candidate news in a single forward pass
-        candidate_vecs_batched, candidate_reg_batched = self.news_encoder(batched_candidate)
+        candidate_vecs_batched = self.news_encoder(batched_candidate)
         
         # Reshape results back to original structure: [num_candidates*batch_size, embed_dim] -> [batch_size, num_candidates, embed_dim]
         candidate_vecs = candidate_vecs_batched.view(num_candidates, batch_size, -1).transpose(0, 1)
         
-        # Process regularization
-        news_reg = torch.mean(candidate_reg_batched)
-
         # Batch process clicked news
         num_clicked = len(clicked_news)
         
@@ -76,7 +68,7 @@ class LSNR_CAT(torch.nn.Module):
         }
         
         # Process all clicked news in a single forward pass
-        clicked_vecs_batched, _ = self.news_encoder(batched_clicked)
+        clicked_vecs_batched = self.news_encoder(batched_clicked)
         
         # Reshape results: [num_clicked*batch_size, embed_dim] -> [batch_size, num_clicked, embed_dim]
         clicked_vecs = clicked_vecs_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
@@ -87,16 +79,14 @@ class LSNR_CAT(torch.nn.Module):
         expanded_mask = clicked_news_mask_tensor.unsqueeze(-1)
         clicked_vecs = clicked_vecs * expanded_mask
         
-        # Get user vector and user regularization
-        user_vec, user_reg = self.user_encoder(clicked_vecs)
-        
-        # Scale regularization terms over both news and user
-        total_reg = (user_reg + news_reg) * self.reg_scale
+        # Get user vector
+        user_vec = self.user_encoder(clicked_vecs)
         
         # Compute click prediction
         click_prob = self.click_predictor(candidate_vecs, user_vec)
         
-        return click_prob, total_reg
+        regularization = 0
+        return click_prob, regularization
     
     def get_news_vector(self, news):
         """
@@ -106,7 +96,7 @@ class LSNR_CAT(torch.nn.Module):
         Returns:
             news_vector: processed news representation
         """
-        return self.news_encoder(news)[0]
+        return self.news_encoder(news)
 
     def get_user_vector(self, clicked_news_vector):
         """
@@ -116,17 +106,7 @@ class LSNR_CAT(torch.nn.Module):
         Returns:
             user_vector: processed user representation
         """
-        return self.user_encoder(clicked_news_vector)[0]
+        return self.user_encoder(clicked_news_vector)
 
     def get_prediction(self, news_vector, user_vector):
-        """
-        Get the click prediction for a specific news article and user.
-        Args:
-            news_vector: tensor of shape [1, embed_dim]
-            user_vector: tensor of shape [1, embed_dim]
-        Returns:
-            click_prob: predicted click probability
-        """
-        return self.click_predictor(
-            news_vector.unsqueeze(dim=0),
-            user_vector.unsqueeze(dim=0)).squeeze(dim=0)
+        return self.click_predictor(news_vector, user_vector)

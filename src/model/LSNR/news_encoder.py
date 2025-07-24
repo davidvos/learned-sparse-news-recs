@@ -40,7 +40,8 @@ class L1Regularizer(nn.Module):
         """
         if self.current_step < self.T:
             self.current_step += 1
-            self.current_alpha = (self.current_step / self.T) ** 2 * self.max_alpha
+            # Use linear schedule instead of quadratic for more stable training
+            self.current_alpha = (self.current_step / self.T) * self.max_alpha
         else:
             pass
 
@@ -65,8 +66,11 @@ class NewsEncoder(torch.nn.Module):
         
         self.projection = nn.Linear(self.embedding_dim, self.sparse_dim)
         self.projection.weight = self.plm.cls.predictions.decoder.weight
-        
-        self.regularizer = L1Regularizer(alpha=0.0012, T=10000)
+        self.projection.bias = self.plm.cls.predictions.bias    
+
+        self.mhsa = MultiHeadSelfAttention(self.embedding_dim, num_attention_heads=12)
+
+        self.regularizer = L1Regularizer(alpha=0.0001, T=10000)  # Reduced from 0.0012
         
 
     def forward(self, news):
@@ -86,9 +90,13 @@ class NewsEncoder(torch.nn.Module):
         
         outputs = outputs.hidden_states[-1]
 
+        outputs = self.mhsa(outputs)
+
         document_vector = self.projection(outputs)
 
-        document_vector = torch.log1p(F.relu(document_vector))  # [batch, seq_len, vocab_size]
+        # Use log1p for sparse representations (standard in SPLADE)
+        # This preserves sparsity better than softplus
+        document_vector = torch.log1p(torch.relu(document_vector))  # [batch, seq_len, vocab_size]
 
         document_vector = torch.max(document_vector, dim=1)[0]  # [batch, vocab_size]
 

@@ -1,32 +1,40 @@
-batch_size: 4
-num_workers: 0
 negative_sampling_ratio: 4
-eval_every: 1000
-num_epochs: 100
-learning_rate: 0.00001         # Reduced to 2e-5 for more stable sparse learning
 
 mind: 
   path: './data/mind'
-  num_clicked_news_a_user: 50
-  num_words_title: 32
+  num_clicked_news_a_user: 30
+  num_words_title: 20
   num_words_abstract: 50
+  pretrained_model_name: 'bert-base-uncased'
+
+adressa:
+  path: './data/adressa'
+  num_clicked_news_a_user: 30
+  num_words_title: 20
+  num_words_abstract: 50
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
 
 ebnerd:
   path: './data/ebnerd'
-  num_clicked_news_a_user: 50
-  num_words_title: 32
+  num_clicked_news_a_user: 30
+  num_words_title: 20
   num_words_abstract: 50
+  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
 
 lsnr:
   model: 'lsnr'
-  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
-  dropout_probability: 0.2
+  dropout_probability: 0.1
+  sparsity_lambda: 0.001
+  flops_lambda: 0.001
+  # Optimized for sparse training
+  max_seq_length: 512
+  warmup_steps: 1000
+  weight_decay: 0.01
 
 lsnr_cat:
   model: 'lsnr_cat'
-  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
@@ -40,26 +48,23 @@ lsnr_cat:
 
 nrms:
   model: 'nrms'
-  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
 
 naml:
   model: 'naml'
-  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2
   num_filters: 300
   window_size: 3
-  # num_categories: 288
-  num_categories: 109
+  num_categories: 288
+  # num_categories: 109
   category_embedding_dim: 100
 
 lstur:
   model: 'lstur'
-  pretrained_model_name: 'bert-base-uncased'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.2

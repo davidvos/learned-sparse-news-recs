@@ -1,17 +1,7 @@
 import pandas as pd
-import swifter
-import json
-import math
 from tqdm import tqdm
 from os import path
-from pathlib import Path
-import random
-from nltk.tokenize import word_tokenize
-import numpy as np
-import csv
-import importlib
-from transformers import AutoTokenizer
-from ast import literal_eval
+import random   
 import yaml
 
 with open("./config.yaml", "r") as file:
@@ -28,10 +18,11 @@ def parse_behaviors(source_path, target_path):
         source_path,
         header=None,
         names=['impression_id', 'user', 'time', 'clicked_news', 'impressions'])
-    behaviors.clicked_news.fillna(' ', inplace=True)
+    # Replace inplace fillna to avoid chained assignment warning
+    behaviors['clicked_news'] = behaviors['clicked_news'].fillna(' ')
 
-    behaviors.clicked_news = behaviors.clicked_news.swifter.apply(
-            lambda x: ' '.join(x.split()))
+    behaviors.clicked_news = behaviors.clicked_news.apply(
+        lambda x: ' '.join(x.split()))
         
     behaviors.impressions = behaviors.impressions.str.split()
 
@@ -64,19 +55,21 @@ def parse_behaviors(source_path, target_path):
         index=False,
         columns=['user', 'clicked_news', 'candidate_news', 'clicked'])
     
-def parse_eval_behaviors(source_path, target_path, cold_threshold):
+def parse_eval_behaviors(source_path, target_path, cold_threshold, split='val'):
     """
     Parse behaviors file in evaluation set.
     Args:
         source: source behaviors file
         target: target behaviors file
         cold_threshold: threshold for cold start
+        subsample_frac: optional float (0,1], fraction of data to subsample (default None, no subsampling)
     """
     behaviors = pd.read_table(
         source_path,
         header=None,
         names=['impression_id', 'user', 'time', 'clicked_news', 'impressions'])
-    behaviors.clicked_news.fillna(' ', inplace=True)
+    # Replace inplace fillna to avoid chained assignment warning
+    behaviors['clicked_news'] = behaviors['clicked_news'].fillna(' ')
 
     if cold_threshold != 0:
         behaviors = behaviors[behaviors.clicked_news.apply(lambda x: len(x.split())) <= cold_threshold]
@@ -92,12 +85,29 @@ def parse_eval_behaviors(source_path, target_path, cold_threshold):
     behaviors.impressions = behaviors.impressions.apply(
         lambda x: ' '.join(x))
     
-    behaviors.to_csv(
+    # Group by user and combine all impressions for each user
+    print("Grouping impressions by user...")
+    grouped_behaviors = behaviors.groupby('user').agg({
+        'impression_id': lambda x: ' '.join(map(str, x)),
+        'time': lambda x: ' '.join(map(str, x)),
+        'clicked_news': lambda x: x.iloc[0],  # Always take the first clicked_news
+        'impressions': lambda x: ' '.join(x),
+        'candidate_news': lambda x: ' '.join(x),
+        'clicked': lambda x: ' '.join(x)
+    }).reset_index()
+
+    if split == 'val':
+        grouped_behaviors = grouped_behaviors.iloc[:int(len(grouped_behaviors) * 0.5)].reset_index(drop=True)
+    elif split == 'test':
+        grouped_behaviors = grouped_behaviors.iloc[int(len(grouped_behaviors) * 0.5):].reset_index(drop=True)
+    
+    grouped_behaviors.to_csv(
         target_path,
         sep='\t',
         index=False,
         header=False,
         columns=['impression_id', 'user', 'time', 'clicked_news', 'impressions', 'candidate_news', 'clicked'])
+
 
 if __name__ == '__main__':
 
@@ -106,16 +116,26 @@ if __name__ == '__main__':
     train_dir = f'{base}/train'
     val_dir = f'{base}/val'
     test_dir = f'{base}/test'
-
-    print('Process data for training')
-
-    print('Parse behaviors')
     
+    print('Process data for training')
+    print('Parse behaviors')
     parse_behaviors(path.join(train_dir, 'behaviors.tsv'),
                     path.join(train_dir, f'behaviors_parsed.tsv'))
     
-    
-    for cold_threshold in [1, 2, 3, 4, 5, 0]:
-        parse_eval_behaviors(path.join(val_dir, 'behaviors.tsv'),
-                        path.join(val_dir, f'behaviors_parsed_{cold_threshold}.tsv'),
-                        cold_threshold)
+
+    for cold_threshold in [0, 1, 2, 3, 4, 5]:
+        print(f'Parse validation behaviors with cold threshold {cold_threshold}')
+        parse_eval_behaviors(
+            path.join(val_dir, 'behaviors.tsv'),
+            path.join(val_dir, f'behaviors_parsed_cold{cold_threshold}.tsv'),
+            cold_threshold=cold_threshold,
+            split='val'
+        )
+
+        print(f'Parse test behaviors with cold threshold {cold_threshold}')
+        parse_eval_behaviors(
+            path.join(test_dir, 'behaviors.tsv'),
+            path.join(test_dir, f'behaviors_parsed_cold{cold_threshold}.tsv'),
+            cold_threshold=cold_threshold,
+            split='test'
+        )

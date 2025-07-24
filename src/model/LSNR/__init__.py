@@ -9,25 +9,23 @@ class LSNR(torch.nn.Module):
     """
     LSNR class for processing news articles and user interactions using a pre-trained language model (PLM).
     """
-    def __init__(self, config, device):
+    def __init__(self, model_config, dataset_config, device):
         """
         Initialize the LSNR model with a pre-trained language model (PLM) and device.
         Args:
-            config: configuration dictionary
+            model_config: model-specific configuration dictionary
+            dataset_config: dataset-specific configuration dictionary
             device: device to run the model on
         """
         super().__init__()
-        self.plm = AutoModelForMaskedLM.from_pretrained(config['pretrained_model_name'], output_hidden_states=True)
-
-        # Freeze the first 8 layers of the PLM
-        for layer in self.plm.bert.encoder.layer[:8]:
-            for param in layer.parameters():
-                param.requires_grad = False
+        self.model_config = model_config
+        self.dataset_config = dataset_config
+        self.plm = AutoModelForMaskedLM.from_pretrained(dataset_config['pretrained_model_name'], output_hidden_states=True)
         
         self.device = device
 
-        self.news_encoder = NewsEncoder(config, self.plm, device)
-        self.user_encoder = UserEncoder(config, self.plm, device)
+        self.news_encoder = NewsEncoder(model_config, self.plm, device)
+        self.user_encoder = UserEncoder(model_config, self.plm, device)
         self.click_predictor = DotProductClickPredictor()
         
         
@@ -103,6 +101,4 @@ class LSNR(torch.nn.Module):
 
     def get_prediction(self, news_vector, user_vector):
         
-        return self.click_predictor(
-            news_vector.unsqueeze(dim=0),
-            user_vector.unsqueeze(dim=0)).squeeze(dim=0)
+        return self.click_predictor(news_vector, user_vector)

@@ -55,8 +55,7 @@ class NewsEncoder(torch.nn.Module):
         
         # Concatenate all features
         combined_vector = torch.cat([title_vector, category_vector, subcategory_vector], dim=1)
-        
-        # Project back to embedding_dim
-        final_vector = self.linear(combined_vector)
 
-        return final_vector
+        combined_vector = self.linear(combined_vector)
+        
+        return combined_vector
