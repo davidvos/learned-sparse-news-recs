@@ -29,7 +29,7 @@ wget https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_dev.zip
 wget https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_small.zip
 ```
   
-1. Unzip the downloaded files and put the unzipped files in the folders of the dataset that you want to pre-process and use. 
+4. Unzip the downloaded files and put the unzipped files in the folders of the dataset that you want to pre-process and use. 
 
 First create a data folder:
 ```bash
