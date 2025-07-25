@@ -177,3 +177,4 @@ data
 wandb
 checkpoints/
 zero_shot_data.ipynb
+.vscode/
