@@ -22,24 +22,45 @@ cd learned-sparse-news-recs
      * [Train](https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_train.zip)
      * [Validation](https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_dev.zip)
    * [EBNeRD](https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_small.zip)
+
+```bash
+wget https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_train.zip
+wget https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_dev.zip
+wget https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_small.zip
+```
   
-4. Unzip the downloaded files and put the unzipped files in the folders of the dataset that you want to pre-process and use. For example: 
+1. Unzip the downloaded files and put the unzipped files in the folders of the dataset that you want to pre-process and use. 
+
+First create a data folder:
+```bash
+mkdir data
+mkdir data/mind data/mind/train data/mind/val data/mind/test data/ebnerd data/ebnerd/test
+```
+
+For MIND: 
 ```bash
 unzip MINDsmall_train.zip -d data/mind/train
 unzip MINDsmall_dev.zip -d data/mind/val
+unzip MINDsmall_dev.zip -d data/mind/test
+```
+For EBNeRD:
+```bash
+unzip ebnerd_small.zip -d data/ebnerd
+mv data/ebnerd/validation data/ebnerd/val
+cp -r data/ebnerd/val/* data/ebnerd/test
 ```
 
 5. To create folder for the out-of-distribution setting we need to copy the MIND and EBNeRD datasets to the new folder. You can do this by running the following commands:
 ```bash
-mkdir data/mind_zero_shot_news_sports
-mkdir data/mind_zero_shot_sports_news
-mkdir data/ebnerd_zero_shot_news_sports
-mkdir data/ebnerd_zero_shot_news_sports
+mkdir data/mind_news data/mind_news/train data/mind_news/val data/mind_news/test
+mkdir data/mind_sports data/mind_sports/train data/mind_sports/val data/mind_sports/test
+mkdir data/ebnerd_nyheder data/ebnerd_nyheder/train data/ebnerd_nyheder/val data/ebnerd_nyheder/test
+mkdir data/ebnerd_sport data/ebnerd_sport/train data/ebnerd_sport/val data/ebnerd_sport/test
 
-cp -r data/mind data/mind_news
-cp -r data/mind data/mind_sports
-cp -r data/ebnerd data/ebnerd_nyheder
-cp -r data/ebnerd data/ebnerd_sport
+cp -r data/mind/* data/mind_news/
+cp -r data/mind/* data/mind_sports/
+cp -r data/ebnerd/* data/ebnerd_nyheder/
+cp -r data/ebnerd/* data/ebnerd_sport/
 ```
 
 6. Install the required packages by running the following command:
@@ -56,18 +77,18 @@ python src/data_preprocess_ebnerd.py
 ```
 These commands will pre-process the data for the regular and user cold-start settings. To pre-process the data for the out-of-distrubution setting, we first need to 
 ```bash
-python src/data_preprocess_mind_zero_shot.py
+python src/data_preprocess_mind_ood.py
 ```
 ```bash
-python src/data_preprocess_ebnerd_zero_shot.py
+python src/data_preprocess_ebnerd_ood.py
 ```
 
 8. For the ```--dataset``` argument you can choose between 'mind', 'ebnerd', 'mind_zero_shot_news_sports', 'mind_zero_shot_sports_news', 'ebnerd_zero_shot_news_sports' and 'ebnerd_zero_shot_news_sports'. For the ```--model``` argument you can choose between 'lsnr' and 'lsnr_cat', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
 ```bash
-python src/train.py --dataset mind --model lsnr
+python src/train.py --dataset mind --model lsnr --batch_size 32 --eval_every 1000 --num_workers 4 --epochs 10 --learning_rate 0.00001
 ```
 
 9. Evaluate the model by running the following command:
 ```bash
-python src/evaluate.py --dataset mind --model lsnr
+python src/evaluate.py --dataset mind --model lsnr --batch_size 32 --num_workers 4 --n_epochs 10 --learning_rate 0.00001
 ```

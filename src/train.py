@@ -32,14 +32,16 @@ def load_config(config_path: str = "./config.yaml") -> Dict[str, Any]:
     with open(config_path, "r") as file:
         return yaml.safe_load(file)
 
-
+# Set random seeds for reproducibility
 set_seeds()
+# Parse command-line arguments
 args = get_arg_parser().parse_args()
+# Load configuration
 config = load_config()
+# Get device (CPU or CUDA)
 device = get_device()
-print(device)
 
-# Add model registry
+# Model registry for easy model selection
 MODEL_REGISTRY = {
     'nrms': NRMSBERT,
     'naml': NAMLBERT,
@@ -48,7 +50,7 @@ MODEL_REGISTRY = {
     'lsnr_cat': LSNR_CAT
 }
 
-# Add project name mapping
+# Project name mapping for wandb logging
 PROJECT_NAMES = {
     'mind': 'mind',
     'mind_sports': 'mind_sports',
@@ -59,12 +61,15 @@ PROJECT_NAMES = {
 }
 
 def evaluate_and_log(model: nn.Module, config: dict, early_stopping: EarlyStopping, args: argparse.Namespace, cold_threshold=0) -> tuple[bool, bool, float]:
-    """Run evaluation, log metrics, and check early stopping. Returns (should_stop_training, get_better, val_auc)."""
+    """
+    Run evaluation, log metrics, and check early stopping.
+    Returns (should_stop_training, get_better, val_auc).
+    """
     model.eval()
     # Build news and user vectors once for both evaluations
     news2vector, news2category = build_news_vectors(model, config, args, cold_threshold=cold_threshold)
-    # Retrieval evaluation
 
+    # Set filter_category based on dataset. This is used for the retrieval evaluation in out-of-distribution settings.
     if args.dataset == 'mind_sports':
         filter_category = 156
     elif args.dataset == 'mind_news':
@@ -76,7 +81,10 @@ def evaluate_and_log(model: nn.Module, config: dict, early_stopping: EarlyStoppi
     else:
         filter_category = None
         
-    ret_auc, ret_mrr, ret_ndcg5, ret_ndcg10, ret_ndcg20, ret_ndcg50, ret_ndcg100, ret_hr5, ret_hr10, ret_hr20, ret_hr50, ret_hr100, ret_recall5, ret_recall10, ret_recall20, ret_recall50, ret_recall100 = eval_retrieval(model, news2vector, news2category, cold_threshold=cold_threshold, args=args, filter_category=filter_category)
+    # Run retrieval evaluation
+    ret_auc, ret_mrr, ret_ndcg5, ret_ndcg10, ret_ndcg20, ret_ndcg50, ret_ndcg100, ret_hr5, ret_hr10, ret_hr20, ret_hr50, ret_hr100, ret_recall5, ret_recall10, ret_recall20, ret_recall50, ret_recall100 = eval_retrieval(
+        model, news2vector, news2category, cold_threshold=cold_threshold, args=args, filter_category=filter_category)
+    # Log evaluation metrics
     log_metrics({
         "ret_auc": ret_auc,
         "ret_mrr": ret_mrr,
@@ -97,6 +105,7 @@ def evaluate_and_log(model: nn.Module, config: dict, early_stopping: EarlyStoppi
         "ret_recall100": ret_recall100
     })
 
+    # Early stopping based on negative AUC (since lower is better for early stopping)
     early_stop, get_better = early_stopping(-ret_auc)
     model.train()   
     gc.collect()
@@ -104,32 +113,40 @@ def evaluate_and_log(model: nn.Module, config: dict, early_stopping: EarlyStoppi
     return early_stop, get_better, ret_auc
 
 def train(model: nn.Module, config: dict, args: argparse.Namespace, device: torch.device) -> None:
-    """Train the model."""
+    """
+    Main training loop for the model.
+    Handles dataset loading, training, evaluation, logging, and checkpointing.
+    """
     if args.dataset not in PROJECT_NAMES:
         raise ValueError(f"Invalid dataset: {args.dataset}")
     project_name = f'{PROJECT_NAMES[args.dataset]}_cold{args.cold_threshold}'
 
+    # Prepare wandb config
     args_dict = vars(args)
     flat_config = flatten_dict(config)
     wandb_config = {**flat_config, **args_dict}
 
+    # Initialize wandb
     wandb.init(project=project_name, name=args.model, config=wandb_config)
 
     model.to(device)
     model.train()
 
     # Load dataset based on dataset type
-    if args.dataset == 'ebnerd' or args.dataset == 'ebnerd_nyheder' or args.dataset == 'ebnerd_sport':
-        dataset = EbnerdBaseDataset(f"{config[args.dataset]['path']}/train/behaviors_parsed.tsv",    
-                            f"{config[args.dataset]['path']}/train/news.tsv",
-                            config,
-                            args)
+    if args.dataset in ['ebnerd', 'ebnerd_nyheder', 'ebnerd_sport']:
+        dataset = EbnerdBaseDataset(
+            f"{config[args.dataset]['path']}/train/behaviors_parsed.tsv",    
+            f"{config[args.dataset]['path']}/train/news.tsv",
+            config,
+            args)
     else:
-        dataset = BaseDataset(f"{config[args.dataset]['path']}/train/behaviors_parsed.tsv",    
-                            f"{config[args.dataset]['path']}/train/news.tsv",
-                            config,
-                            args)
+        dataset = BaseDataset(
+            f"{config[args.dataset]['path']}/train/behaviors_parsed.tsv",    
+            f"{config[args.dataset]['path']}/train/news.tsv",
+            config,
+            args)
     
+    # DataLoader for batching
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -141,36 +158,31 @@ def train(model: nn.Module, config: dict, args: argparse.Namespace, device: torc
     
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
-
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.9)
-
     early_stopping = EarlyStopping()
     should_stop_training = False
     training_step = 0
 
     for epoch in range(args.num_epochs):
-
         if should_stop_training:
             break
-
         print(f"Epoch {epoch}")
         for batch in tqdm(dataloader):
-
             training_step += 1
-
+            # Skip empty batches
             if len(batch["clicked_news"]) == 0:
                 continue
-            
-            if args.model == 'nrms' or args.model == 'naml':
+            # Forward pass and regularization handling by model type
+            if args.model in ['nrms', 'naml']:
                 y_pred = model(batch["candidate_news"], 
                                batch["clicked_news"],
                                batch["clicked_news_mask"])   
                 regularization = 0         
-            elif args.model == 'lsnr' or args.model == 'lsnr_cat':
+            elif args.model in ['lsnr', 'lsnr_cat']:
                 y_pred, regularization = model(batch["candidate_news"], 
                                batch["clicked_news"],
                                batch["clicked_news_mask"])
-                regularization = 0
+                regularization = 0  # TODO: Remove this line if model returns real regularization
             elif args.model == 'lstur':
                 y_pred = model(batch["candidate_news"], 
                                batch["clicked_news"],
@@ -178,12 +190,13 @@ def train(model: nn.Module, config: dict, args: argparse.Namespace, device: torc
                                batch["user"])
                 regularization = 0
 
-
+            # Prepare target labels (all zeros, as only first candidate is positive)
             y = torch.zeros(len(y_pred)).long().to(device) 
-                
+            
+            # Compute loss (add regularization if any)
             loss = criterion(y_pred, y) + regularization
 
-            # Log regularization and learning rate
+            # Log regularization and learning rate if regularization is nonzero
             if regularization != 0:
                 wandb.log({
                     "regularization": regularization.item(),
@@ -191,20 +204,17 @@ def train(model: nn.Module, config: dict, args: argparse.Namespace, device: torc
       
             optimizer.zero_grad()
             loss.backward()
-            
-            # Add gradient clipping for numerical stability
+            # Gradient clipping for stability
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
             optimizer.step()
-            
-            # Step the scheduler
+            # Step the learning rate scheduler
             scheduler.step()
-            
+            # Log training metrics
             log_metrics({
                 "loss": loss.item(),
                 "regularization": regularization.item() if isinstance(regularization, torch.Tensor) else regularization
             })
-            
+            # Periodic evaluation and checkpointing
             if training_step % args.eval_every == 0:
                 early_stop, get_better, val_auc = evaluate_and_log(model, config, early_stopping, args, cold_threshold=args.cold_threshold)
                 if early_stop:
@@ -215,8 +225,11 @@ def train(model: nn.Module, config: dict, args: argparse.Namespace, device: torc
                     save_checkpoint(model, optimizer, checkpoint_name, val_auc)
 
 if __name__ == '__main__':
+    # Validate model selection
     if args.model not in MODEL_REGISTRY:
         raise ValueError(f"Invalid model: {args.model}. Available models: {list(MODEL_REGISTRY.keys())}")
+    # Instantiate model
     model_class = MODEL_REGISTRY[args.model]
     model = model_class(config[args.model], config[args.dataset], device)
+    # Start training
     train(model, config, args, device)

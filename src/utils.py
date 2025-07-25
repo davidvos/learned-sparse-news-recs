@@ -7,7 +7,7 @@ import argparse
 import random
 
 class EarlyStopping:
-    def __init__(self, patience=40):
+    def __init__(self, patience=5):
         self.patience = patience
         self.counter = 0
         self.best_loss = np.inf
@@ -131,14 +131,13 @@ def set_seeds(seed: int = 42) -> None:
 
 def get_arg_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=False)
-    parser.add_argument('--dataset', type=str, required=False)
-    parser.add_argument('--learning_rate', type=float, default=0.0001)
+    parser.add_argument('--model', type=str, required=True)
+    parser.add_argument('--dataset', type=str, required=True)
+    parser.add_argument('--learning_rate', type=float, default=0.00001)
     parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--eval_every', type=int, default=100)
-    parser.add_argument('--num_epochs', type=int, default=100)
-    parser.add_argument('--num_workers', type=int, default=16)
-    parser.add_argument('--eval_type', type=str, default='ctr', choices=['ctr', 'retrieval', 'both'], help='Evaluation type: ctr, retrieval, or both')
+    parser.add_argument('--eval_every', type=int, default=1000)
+    parser.add_argument('--num_epochs', type=int, default=10)
+    parser.add_argument('--num_workers', type=int, default=1)
     parser.add_argument('--cold_threshold', type=int, default=1, help='Threshold for cold start evaluation/training')
     return parser
 
