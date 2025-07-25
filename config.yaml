@@ -7,44 +7,46 @@ mind:
   num_words_abstract: 50
   pretrained_model_name: 'bert-base-uncased'
 
-adressa:
-  path: './data/adressa'
+mind_sports:
+  path: './data/mind_sports'
   num_clicked_news_a_user: 30
-  num_words_title: 20
-  num_words_abstract: 50
-  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  num_words_title: 30
+  num_words_abstract: 40
+  pretrained_model_name: 'bert-base-uncased'
+
+mind_news:
+  path: './data/mind_news'
+  num_clicked_news_a_user: 30
+  num_words_title: 30
+  num_words_abstract: 40
+  pretrained_model_name: 'bert-base-uncased'
 
 ebnerd:
   path: './data/ebnerd'
   num_clicked_news_a_user: 30
   num_words_title: 20
   num_words_abstract: 50
-  pretrained_model_name: 'google-bert/bert-base-multilingual-cased'
+  pretrained_model_name: 'google-bert/bert-base-multilingual-uncased'
+
+ebnerd_nyheder:
+  path: './data/ebnerd_nyheder'
+  num_clicked_news_a_user: 30
+  num_words_title: 20
+  num_words_abstract: 50
+  pretrained_model_name: 'google-bert/bert-base-multilingual-uncased'
+
+ebnerd_sport:
+  path: './data/ebnerd_sport'
+  num_clicked_news_a_user: 30
+  num_words_title: 20
+  num_words_abstract: 50
+  pretrained_model_name: 'google-bert/bert-base-multilingual-uncased'
 
 lsnr:
   model: 'lsnr'
   num_attention_heads: 16
   query_vector_dim: 200
   dropout_probability: 0.1
-  sparsity_lambda: 0.001
-  flops_lambda: 0.001
-  # Optimized for sparse training
-  max_seq_length: 512
-  warmup_steps: 1000
-  weight_decay: 0.01
-
-lsnr_cat:
-  model: 'lsnr_cat'
-  num_attention_heads: 16
-  query_vector_dim: 200
-  dropout_probability: 0.2
-  num_filters: 768
-  window_size: 3
-  num_categories: 288
-  # num_categories: 109
-  category_embedding_dim: 100
-  num_users: 94057
-  # num_users: 30482
 
 nrms:
   model: 'nrms'

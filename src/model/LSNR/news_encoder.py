@@ -6,15 +6,14 @@ from model.general.attention.additive import AdditiveAttention
 
 class L1Regularizer(nn.Module):
     """
-    L1 regularization term that increases over time.
-    This regularization term is used to encourage sparsity in news representations.
+    L1 regularization term with a linearly increasing schedule for alpha.
+    Encourages sparsity in representations over training steps.
     """
     def __init__(self, T: int = 5000, alpha: float = 0.06):
         """
-        Initialize the L1 regularizer with a schedule for alpha.
         Args:
-            T: number of steps for the regularization schedule
-            alpha: maximum value for the regularization term
+            T (int): Number of steps for the regularization schedule.
+            alpha (float): Maximum value for the regularization coefficient.
         """
         super().__init__()
         self.T = T
@@ -26,9 +25,9 @@ class L1Regularizer(nn.Module):
         """
         Compute the L1 regularization term.
         Args:
-            reps: tensor of shape [batch_size, seq_len, embed_dim]
-            Returns:
-                reg: regularization term
+            reps (Tensor): [batch_size, ...] representation tensor.
+        Returns:
+            reg (Tensor): Regularization loss term.
         """
         reg = torch.abs(reps).sum(dim=1).mean() * self.current_alpha
         self.step()
@@ -40,22 +39,21 @@ class L1Regularizer(nn.Module):
         """
         if self.current_step < self.T:
             self.current_step += 1
-            # Use linear schedule instead of quadratic for more stable training
+            # Linear schedule for alpha
             self.current_alpha = (self.current_step / self.T) * self.max_alpha
-        else:
-            pass
+        # After T steps, alpha stays at max_alpha
 
-class NewsEncoder(torch.nn.Module):
+class NewsEncoder(nn.Module):
     """
-    NewsEncoder class for processing news articles using a pre-trained language model (PLM).
-    This class applies multi-head self-attention and additive attention mechanisms to the processed news articles.
+    Encodes news articles using a pre-trained language model (PLM),
+    followed by multi-head self-attention and a projection to a sparse vocabulary space.
     """
     def __init__(self, config, plm, device):
         """
         Args:
-            config: configuration dictionary
-            plm: pre-trained language model
-            device: device to run the model on
+            config (dict): Model configuration.
+            plm (nn.Module): Pre-trained language model.
+            device (torch.device): Device to run the model on.
         """
         super().__init__()
         self.plm = plm
@@ -63,43 +61,48 @@ class NewsEncoder(torch.nn.Module):
 
         self.embedding_dim = self.plm.config.hidden_size
         self.sparse_dim = plm.config.vocab_size
-        
+
+        # Project PLM output to vocabulary space using PLM's MLM head weights
         self.projection = nn.Linear(self.embedding_dim, self.sparse_dim)
         self.projection.weight = self.plm.cls.predictions.decoder.weight
-        self.projection.bias = self.plm.cls.predictions.bias    
+        self.projection.bias = self.plm.cls.predictions.bias
 
+        # Multi-head self-attention for contextualization
         self.mhsa = MultiHeadSelfAttention(self.embedding_dim, num_attention_heads=12)
 
-        self.regularizer = L1Regularizer(alpha=0.0001, T=10000)  # Reduced from 0.0012
-        
+        # L1 regularizer for sparsity (SPLADE-style)
+        self.regularizer = L1Regularizer(alpha=0.0001, T=10000)
 
     def forward(self, news):
         """
-        Process news through the PLM and apply attention mechanisms
+        Encode news articles.
         Args:
-            news: dictionary containing 'input_ids' and 'attention_mask'
+            news (dict): Contains 'input_ids' and 'attention_mask' tensors.
         Returns:
-            document_vector: processed news representation
-            reg: regularization term
+            document_vector (Tensor): [batch, vocab_size] sparse news representation.
+            reg (Tensor): Regularization loss term.
         """
-        # Process text through PLM
+        # Pass input through PLM
         outputs = self.plm(
             input_ids=news["input_ids"].squeeze(1).to(self.device),
             attention_mask=news["attention_mask"].squeeze(1).to(self.device),
         )
-        
+        # Use last hidden state
         outputs = outputs.hidden_states[-1]
 
+        # Contextualize with multi-head self-attention
         outputs = self.mhsa(outputs)
 
+        # Project to vocabulary space
         document_vector = self.projection(outputs)
 
-        # Use log1p for sparse representations (standard in SPLADE)
-        # This preserves sparsity better than softplus
+        # Apply log1p(ReLU(.)) for SPLADE-style sparsity
         document_vector = torch.log1p(torch.relu(document_vector))  # [batch, seq_len, vocab_size]
 
+        # Pool over sequence (max pooling)
         document_vector = torch.max(document_vector, dim=1)[0]  # [batch, vocab_size]
 
+        # Compute L1 regularization
         reg = self.regularizer(document_vector)
 
         return document_vector, reg

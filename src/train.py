@@ -20,7 +20,6 @@ from model.NRMSBERT import NRMSBERT
 from model.NAMLBERT import NAMLBERT
 from model.LSTURBERT import LSTURBERT
 from model.LSNR import LSNR
-from model.LSNR_CAT import LSNR_CAT
 from datasets import BaseDataset
 from ebnerd_datasets import EbnerdBaseDataset
 from evaluate import eval_retrieval, build_news_vectors
@@ -47,7 +46,6 @@ MODEL_REGISTRY = {
     'naml': NAMLBERT,
     'lstur': LSTURBERT,
     'lsnr': LSNR,
-    'lsnr_cat': LSNR_CAT
 }
 
 # Project name mapping for wandb logging
@@ -178,11 +176,10 @@ def train(model: nn.Module, config: dict, args: argparse.Namespace, device: torc
                                batch["clicked_news"],
                                batch["clicked_news_mask"])   
                 regularization = 0         
-            elif args.model in ['lsnr', 'lsnr_cat']:
+            elif args.model == 'lsnr':
                 y_pred, regularization = model(batch["candidate_news"], 
                                batch["clicked_news"],
                                batch["clicked_news_mask"])
-                regularization = 0  # TODO: Remove this line if model returns real regularization
             elif args.model == 'lstur':
                 y_pred = model(batch["candidate_news"], 
                                batch["clicked_news"],
@@ -193,7 +190,7 @@ def train(model: nn.Module, config: dict, args: argparse.Namespace, device: torc
             # Prepare target labels (all zeros, as only first candidate is positive)
             y = torch.zeros(len(y_pred)).long().to(device) 
             
-            # Compute loss (add regularization if any)
+            # Compute loss
             loss = criterion(y_pred, y) + regularization
 
             # Log regularization and learning rate if regularization is nonzero

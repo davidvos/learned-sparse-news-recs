@@ -192,14 +192,55 @@ def parse_news(news_path, target_path):
     news = news[['id', 'category', 'subcategory', 'title', 'abstract', 'url', 'title_entities', 'abstract_entities']]
     news.to_csv(target_path, sep='\t', index=False, header=False)
 
+def create_user2int_category2int(behaviors_paths, news_paths, output_dirs):
+    """
+    Create user2int.tsv and category2int.tsv files from all splits (train, val, test),
+    and write them to each split's directory.
+    Args:
+        behaviors_paths: List of paths to behaviors.parquet files (train, val, test)
+        news_paths: List of paths to articles.parquet files (train, val, test)
+        output_dirs: List of directories to save the mapping files (train, val, test)
+    """
+    # Aggregate all users from all splits
+    all_behaviors = [pd.read_parquet(p) for p in behaviors_paths]
+    all_users = pd.concat([df['user_id'] for df in all_behaviors]).unique()
+    user2int = {user: idx+1 for idx, user in enumerate(all_users)}
+    user2int_df = pd.DataFrame(list(user2int.items()), columns=['user','int'])
+
+    # Aggregate all categories and subcategories from all splits
+    all_news = [pd.read_parquet(p) for p in news_paths]
+    for df in all_news:
+        df['category'] = df['category'].apply(extract_first)
+        df['subcategory'] = df['subcategory'].apply(extract_first)
+    all_categories = pd.concat([pd.concat([df['category'], df['subcategory']]) for df in all_news]).unique()
+    all_categories = [c for c in all_categories if pd.notnull(c)]
+    category2int = {cat: idx+1 for idx, cat in enumerate(all_categories)}
+    category2int_df = pd.DataFrame(list(category2int.items()), columns=['category','int'])
+
+    # Write mapping files to each output directory
+    for out_dir in output_dirs:
+        user2int_path = os.path.join(out_dir, 'user2int.tsv')
+        category2int_path = os.path.join(out_dir, 'category2int.tsv')
+        user2int_df.to_csv(user2int_path, sep='\t', index=False, header=False)
+        category2int_df.to_csv(category2int_path, sep='\t', index=False, header=False)
+
 if __name__ == '__main__':
     # Main entry point for OOD ebnerd preprocessing.
     # Set your target category and base directory.
+
     target_category = 'sport'  # Set your OOD category here
+    
     base = f'./data/ebnerd_{target_category}'
     train_dir = f'{base}/train'
     val_dir = f'{base}/val'
     test_dir = f'{base}/test'
+
+    # Create user2int and category2int mappings
+    create_user2int_category2int(
+        [path.join(train_dir, 'behaviors.parquet'), path.join(val_dir, 'behaviors.parquet'), path.join(test_dir, 'behaviors.parquet')],
+        [path.join(base, 'articles.parquet')],
+        [train_dir, val_dir, test_dir]
+    )
 
     # Process OOD training (remove target category)
     parse_behaviors_ood(

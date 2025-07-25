@@ -187,7 +187,8 @@ class EbnerdBaseDataset(Dataset):
         self.tokenizer = AutoTokenizer.from_pretrained(config[args.dataset]['pretrained_model_name'])
 
         # Read parsed behaviors file (with header, tab-separated)
-        self.behaviors_parsed = pd.read_table(behaviors_path)
+        self.behaviors_parsed = pd.read_table(behaviors_path, sep='\t', names=['user', 'clicked_news', 'candidate_news', 'clicked'])
+
         self.behaviors_parsed['clicked_news'] = self.behaviors_parsed['clicked_news'].fillna(' ')
 
         user2int = dict(pd.read_table(f'data/{args.dataset}/train/user2int.tsv').values.tolist())
@@ -196,21 +197,12 @@ class EbnerdBaseDataset(Dataset):
 
         self.behaviors_parsed = self.behaviors_parsed[self.behaviors_parsed['candidate_news'].notna()]
 
-        if args.dataset == 'ebnerd_nyheder' or args.dataset == 'ebnerd_sport':
-            self.news_parsed = pd.read_table(
-                news_path,
-                header=None,
-                names=['id', 'category', 'subcategory', 'title', 'abstract', 'url'],
-                usecols=['id', 'category', 'subcategory', 'title', 'abstract'],
-            )
-        else:       
-            # Read news file with ebnerd format (no header, tab-separated)
-            self.news_parsed = pd.read_table(
-                news_path,
-                header=None,
-                names=['id', 'category', 'subcategory', 'title', 'abstract', 'url', 'entities', 'entity_groups'],
-                usecols=['id', 'category', 'subcategory', 'title', 'abstract'],
-            )
+        self.news_parsed = pd.read_table(
+            news_path,
+            header=None,
+            names=['id', 'category', 'subcategory', 'title', 'abstract', 'url', 'entities', 'entity_groups'],
+            usecols=['id', 'category', 'subcategory', 'title', 'abstract'],
+        )
 
         self.news_parsed['title'] = self.news_parsed['title'].fillna('')
         self.news_parsed['abstract'] = self.news_parsed['abstract'].fillna('')
@@ -256,22 +248,14 @@ class EbnerdBaseDataset(Dataset):
                 max_length=self.config[self.args.dataset]['num_words_title'] + self.config[self.args.dataset]['num_words_abstract'],
                 return_tensors='pt'
             )
-            if (self.args.model == 'naml' or self.args.model == 'lstur') and (self.args.dataset == 'ebnerd_nyheder' or self.args.dataset == 'ebnerd_sport' or self.args.dataset == 'mind_news' or self.args.dataset == 'mind_sports'):
-                return {
-                    'input_ids': tokenized['input_ids'],
-                    'attention_mask': tokenized['attention_mask'],
-                    'category': torch.tensor(0).long(),
-                    'subcategory': torch.tensor(0).long(),
-                    'text': raw['text']
-                }
-            else:
-                return {
-                    'input_ids': tokenized['input_ids'],
-                    'attention_mask': tokenized['attention_mask'],
-                    'category': torch.tensor(raw['category']).long(),
-                    'subcategory': torch.tensor(raw['subcategory']).long(),
-                    'text': raw['text']
-                }
+
+            return {
+                'input_ids': tokenized['input_ids'],
+                'attention_mask': tokenized['attention_mask'],
+                'category': torch.tensor(raw['category']).long(),
+                'subcategory': torch.tensor(raw['subcategory']).long(),
+                'text': raw['text']
+            }
 
         # Prepare padding tokenized if not already
         if self.padding_tokenized is None:

@@ -19,23 +19,19 @@ from datasets import NewsDataset, BehaviorsDataset, UserDataset
 from ebnerd_datasets import EbnerdNewsDataset, EbnerdBehaviorsDataset, EbnerdUserDataset
 
 from model.LSNR import LSNR
-from model.LSNR_CAT import LSNR_CAT
 from model.NAMLBERT import NAMLBERT
 from model.LSTURBERT import LSTURBERT
 from model.NRMSBERT import NRMSBERT
 
-# Parse command-line arguments
 args = get_arg_parser().parse_args()
 
-# Load configuration
 with open("./config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
 model_name = config[args.model]['model']
 pretrained_model_name = config[args.dataset]['pretrained_model_name']
 
-# Get device (MPS, CUDA, or CPU)
-device = get_device()   
+device = get_device()   # Select device (MPS, CUDA, or CPU)
 
 # Model registry for easy model selection
 MODEL_REGISTRY = {
@@ -43,7 +39,6 @@ MODEL_REGISTRY = {
     'naml': NAMLBERT,
     'lstur': LSTURBERT,
     'lsnr': LSNR,
-    'lsnr_cat': LSNR_CAT
 }
 
 tokenizer = AutoTokenizer.from_pretrained(config[args.dataset]['pretrained_model_name'])
@@ -110,6 +105,7 @@ def eval_retrieval(model, news2vector, news2category, cold_threshold=0, args=Non
                 # Ensure user_scores is on CPU and numpy before passing to multiprocessing
                 tasks.append((labels, user_scores.cpu().numpy()))
 
+            # Free up memory
             del user_history_vectors, user_vectors, scores_flat
             torch.cuda.empty_cache()
 
@@ -123,6 +119,7 @@ def eval_retrieval(model, news2vector, news2category, cold_threshold=0, args=Non
         np.nanmean(hr5s), np.nanmean(hr10s), np.nanmean(hr20s), np.nanmean(hr50s), np.nanmean(hr100s),
         np.nanmean(recall5s), np.nanmean(recall10s), np.nanmean(recall20s), np.nanmean(recall50s), np.nanmean(recall100s)
     )
+
 
 def build_news_vectors(model, config, args, cold_threshold=0):
     """
@@ -152,21 +149,13 @@ def build_news_vectors(model, config, args, cold_threshold=0):
         news_ids = batch['id']
         news_text = batch['text']
         # Prepare batch data for model
-        if args.model in ['naml', 'lstur', 'lsnr_cat']:
-            if args.dataset in ['ebnerd_nyheder', 'ebnerd_sport', 'mind_news', 'mind_sports']:
-                batch_data = {
-                    'input_ids': batch['input_ids'].squeeze(1).to(device),
-                    'attention_mask': batch['attention_mask'].squeeze(1).to(device),
-                    'category': torch.zeros_like(batch['category']).to(device),
-                    'subcategory': torch.zeros_like(batch['subcategory']).to(device)
-                }
-            else:
-                batch_data = {
-                    'input_ids': batch['input_ids'].squeeze(1).to(device),
-                    'attention_mask': batch['attention_mask'].squeeze(1).to(device),
-                    'category': batch['category'].to(device),
-                    'subcategory': batch['subcategory'].to(device)
-                }
+        if args.model in ['naml', 'lstur']:
+            batch_data = {
+                'input_ids': batch['input_ids'].squeeze(1).to(device),
+                'attention_mask': batch['attention_mask'].squeeze(1).to(device),
+                'category': batch['category'].to(device),
+                'subcategory': batch['subcategory'].to(device)
+            }
         else:
             batch_data = batch
         # Get news vectors from the model
@@ -183,6 +172,7 @@ def build_news_vectors(model, config, args, cold_threshold=0):
                 news2category[str(news_id)] = int(category.item())
         del news_vectors, batch_data
         torch.cuda.empty_cache()
+        
     # Add a zero vector for padding
     if news2vector:
         vector_dim = next(iter(news2vector.values())).shape[0]
@@ -190,6 +180,7 @@ def build_news_vectors(model, config, args, cold_threshold=0):
         news2category['PADDED_NEWS'] = 0
     print(f"Processed {len(news2vector)} news vectors")
     return news2vector, news2category
+
 
 def behaviors_collate_fn(batch):
     """
@@ -210,6 +201,7 @@ def behaviors_collate_fn(batch):
     batch_out['user'] = torch.tensor([item['user'] for item in batch], dtype=torch.long)
     batch_out['impressions'] = [item['impressions'] for item in batch]
     return batch_out
+
 
 if __name__ == "__main__":
 

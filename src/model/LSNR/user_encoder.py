@@ -6,15 +6,14 @@ from model.general.attention.additive import AdditiveAttention
 
 class L1Regularizer(nn.Module):
     """
-    L1 regularization term that increases over time.
-    This regularization term is used to encourage sparsity in user representations.
+    L1 regularization term with a linearly increasing schedule for alpha.
+    Encourages sparsity in user representations over training steps.
     """
     def __init__(self, T: int = 5000, alpha: float = 0.02):
         """
-        Initialize the L1 regularizer with a schedule for alpha.
         Args:
-            T: number of steps for the regularization schedule
-            alpha: maximum value for the regularization term
+            T (int): Number of steps for the regularization schedule.
+            alpha (float): Maximum value for the regularization coefficient.
         """
         super().__init__()
         self.T = T
@@ -26,9 +25,9 @@ class L1Regularizer(nn.Module):
         """
         Compute the L1 regularization term.
         Args:
-            reps: tensor of shape [batch_size, seq_len, embed_dim]
+            reps (Tensor): [batch_size, ...] representation tensor.
         Returns:
-            reg: regularization term
+            reg (Tensor): Regularization loss term.
         """
         reg = torch.abs(reps).sum(dim=1).mean() * self.current_alpha
         self.step()
@@ -40,83 +39,67 @@ class L1Regularizer(nn.Module):
         """
         if self.current_step < self.T:
             self.current_step += 1
-            # Use linear schedule instead of quadratic for more stable training
+            # Linear schedule for alpha
             self.current_alpha = (self.current_step / self.T) * self.max_alpha
-        else:
-            pass
+        # After T steps, alpha stays at max_alpha
 
 class GatedProjection(nn.Module):
     """
     Gated projection layer that computes a weighted sum of the input features using a gate and a transformation.
-    This layer is used to project the input features into a lower-dimensional space while maintaining important information.
+    Projects input features into a lower-dimensional space while maintaining important information.
     """
     def __init__(self, in_features, out_features, dropout_prob, plm):
         """
-        Gated projection layer that computes a weighted sum of the input features using a gate and a transformation.
         Args:
-            in_features: number of input features
-            out_features: number of output features
-            dropout_prob: dropout probability
-            plm: pre-trained language model (for initializing weights)
+            in_features (int): Number of input features.
+            out_features (int): Number of output features.
+            dropout_prob (float): Dropout probability.
+            plm (nn.Module): Pre-trained language model (for initializing weights).
         """
         super().__init__()
-        self.fc_gate = nn.Linear(in_features, out_features)        # computes the gate
-
-        self.fc_transform = nn.Linear(in_features, out_features)  # computes the transformation
-        
-        # Use BERTs MLM output projection weights
+        self.fc_gate = nn.Linear(in_features, out_features)        # Computes the gate
+        self.fc_transform = nn.Linear(in_features, out_features)  # Computes the transformation
+        # Use BERT's MLM output projection weights
         self.fc_transform.weight = plm.cls.predictions.decoder.weight
         self.fc_transform.bias = plm.cls.predictions.decoder.bias
-        
         self.dropout = nn.Dropout(dropout_prob)
 
     def forward(self, x):
         """
         Forward pass through the gated projection layer.
         Args:
-            x: input tensor of shape [batch_size, in_features]
+            x (Tensor): [batch_size, in_features] input tensor.
         Returns:
-            output: gated output of shape [batch_size, out_features]
+            output (Tensor): [batch_size, out_features] gated output.
         """
-        # Compute gated output: dropout(sigmoid(gate) * tanh(transform))
         gate = torch.sigmoid(self.fc_gate(x))
         transform = torch.tanh(self.fc_transform(x))
         return self.dropout(gate * transform)
 
 class UserEncoder(nn.Module):
     """
-    UserEncoder class for processing user interactions with news articles.
-    This class applies multi-head self-attention and additive attention mechanisms to the processed user interactions.
+    Encodes user interactions with news articles using attention mechanisms and projection layers.
+    Produces a sparse user representation for downstream tasks.
     """
     def __init__(self, config, plm, device):
         """
         Args:
-            config: configuration dictionary
-            plm: pre-trained language model
-            device: device to run the model on
+            config (dict): Model configuration.
+            plm (nn.Module): Pre-trained language model.
+            device (torch.device): Device to run the model on.
         """
-         # Initialize the UserEncoder with a pre-trained language model (PLM) and device.
         super().__init__()
         self.config = config
         self.device = device
-
         self.sparse_dim = plm.config.vocab_size
         self.reduced_dim = plm.config.hidden_size
         self.embedding_dim = self.reduced_dim
-        
-        # Use config dropout probability
         self.dropout_prob = config['dropout_probability']
-        
-         # Increase number of attention heads for better temporal modeling
-        self.multihead_self_attention = MultiHeadSelfAttention(
-            self.embedding_dim, 16)
-        
-        self.additive_attention = AdditiveAttention(
-            config['query_vector_dim'],
-            self.embedding_dim
-        ) 
-        
-        # Dimension reduction
+        # Multi-head self-attention for temporal modeling
+        self.multihead_self_attention = MultiHeadSelfAttention(self.embedding_dim, 16)
+        # Additive attention for aggregation
+        self.additive_attention = AdditiveAttention(config['query_vector_dim'], self.embedding_dim)
+        # Dimension reduction from sparse to dense
         self.dim_reduction = nn.Sequential(
             nn.Linear(self.sparse_dim, self.reduced_dim),
             nn.LayerNorm(self.reduced_dim),
@@ -124,34 +107,30 @@ class UserEncoder(nn.Module):
             nn.Dropout(self.dropout_prob),
             nn.Linear(self.reduced_dim, self.reduced_dim)
         )
- 
-        # Remove the original output_projection and use the new gated projection instead.
+        # Gated projection to sparse space
         self.gated_projection = GatedProjection(self.embedding_dim, self.sparse_dim, self.dropout_prob, plm)
-        
-        # Weaker regularization for user embeddings
-        self.regularizer = L1Regularizer(alpha=0.0003, T=10000)  # Reduced from 0.004
+        # L1 regularizer for sparsity (SPLADE-style)
+        self.regularizer = L1Regularizer(alpha=0.0003, T=10000)
 
     def forward(self, article_vectors):
         """
-        Forward pass through the UserEncoder.
+        Encode user history of clicked news articles.
         Args:
-            article_vectors: tensor of shape [batch_size, seq_len, sparse_dim]
+            article_vectors (Tensor): [batch_size, seq_len, sparse_dim] input news vectors.
         Returns:
-            user_emb: tensor of shape [batch_size, reduced_dim]
-            reg: regularization term
+            user_emb (Tensor): [batch_size, sparse_dim] sparse user representation.
+            reg (Tensor): Regularization loss term.
         """
+        # Reduce dimension from sparse to dense
         user_emb = self.dim_reduction(article_vectors)
-        
+        # Contextualize with multi-head self-attention
         user_emb = self.multihead_self_attention(user_emb)
-        
+        # Aggregate with additive attention
         user_emb = self.additive_attention(user_emb)
-
+        # Project to sparse space with gating
         user_emb = self.gated_projection(user_emb)
-        # Use log1p for sparse representations (standard in SPLADE)
-        # This preserves sparsity better than softplus
+        # Apply log1p(ReLU(.)) for SPLADE-style sparsity
         user_emb = torch.log1p(torch.relu(user_emb))
-        
-        # Apply regularization
+        # Compute L1 regularization
         reg = self.regularizer(user_emb)
-        
         return user_emb, reg

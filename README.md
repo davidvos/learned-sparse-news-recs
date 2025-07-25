@@ -75,7 +75,7 @@ python src/data_preprocess_mind.py
 ```bash
 python src/data_preprocess_ebnerd.py
 ```
-These commands will pre-process the data for the regular and user cold-start settings. To pre-process the data for the out-of-distrubution setting, we first need to 
+These commands will pre-process the data for the regular and user cold-start settings. To pre-process the data for the out-of-distrubution setting, run the following commands:
 ```bash
 python src/data_preprocess_mind_ood.py
 ```
@@ -83,12 +83,12 @@ python src/data_preprocess_mind_ood.py
 python src/data_preprocess_ebnerd_ood.py
 ```
 
-8. For the ```--dataset``` argument you can choose between 'mind', 'ebnerd', 'mind_zero_shot_news_sports', 'mind_zero_shot_sports_news', 'ebnerd_zero_shot_news_sports' and 'ebnerd_zero_shot_news_sports'. For the ```--model``` argument you can choose between 'lsnr' and 'lsnr_cat', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
+1. For the ```--dataset``` argument you can choose between 'mind', 'ebnerd', 'mind_news', 'mind_sports', 'ebnerd_nyheder' and 'ebnerd_sport'. For the ```--model``` argument you can choose between 'lsnr', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
 ```bash
-python src/train.py --dataset mind --model lsnr --batch_size 32 --eval_every 1000 --num_workers 4 --epochs 10 --learning_rate 0.00001
+python src/train.py --dataset mind --model lsnr --batch_size 32 --eval_every 1000 --num_workers 4 --num_epochs 10 --learning_rate 0.00001
 ```
 
-9. Evaluate the model by running the following command:
+1. Evaluate the model by running the following command:
 ```bash
 python src/evaluate.py --dataset mind --model lsnr --batch_size 32 --num_workers 4 --n_epochs 10 --learning_rate 0.00001
 ```
