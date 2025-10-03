@@ -214,7 +214,6 @@ def eval_retrieval(
         collate_fn=behaviors_collate_fn,
     )
 
-
     # Stream metrics computation to avoid holding all users' data in memory
     total_users_processed = 0
     num_metric_samples = 0
