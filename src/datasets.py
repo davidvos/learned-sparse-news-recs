@@ -1,31 +1,40 @@
-import argparse
 import yaml
 import pandas as pd
 from ast import literal_eval
 import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
-from utils import get_arg_parser
-
-with open("./config.yaml", "r") as file:
-    config = yaml.safe_load(file)
-
-args, unknown = get_arg_parser().parse_known_args()
 
 class NewsDataset(Dataset):
     """
     Load news for evaluation.
     """
-    def __init__(self, news_path, pretrained_model_name, model_name):
+    def __init__(self, news_path, pretrained_model_name, model_name, dataset_type=None, num_words_title=20, num_words_abstract=50):
         """
         Args:
             news_path: path to news file
             pretrained_model_name: name of the pretrained model
             model_name: name of the model
+            dataset_type: type of dataset (e.g., 'mind', 'ebnerd')
+            num_words_title: maximum number of words in title
+            num_words_abstract: maximum number of words in abstract
         """
         super(NewsDataset, self).__init__()
 
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        
+        # Extract dataset type from news_path if not provided
+        if dataset_type is None:
+            # Extract from path like "data/mind/val/news.tsv" -> "mind"
+            path_parts = news_path.split('/')
+            if 'data' in path_parts:
+                data_idx = path_parts.index('data')
+                if data_idx + 1 < len(path_parts):
+                    dataset_type = path_parts[data_idx + 1]
+        
+        self.dataset = dataset_type
+        self.num_words_title = num_words_title
+        self.num_words_abstract = num_words_abstract
 
         self.news = pd.read_table(
             news_path,
@@ -36,7 +45,7 @@ class NewsDataset(Dataset):
         self.news['title'] = self.news['title'].fillna('')
         self.news['abstract'] = self.news['abstract'].fillna('')
 
-        category2int = dict(pd.read_table(f'data/{args.dataset}/train/category2int.tsv').values.tolist())
+        category2int = dict(pd.read_table(f'data/{self.dataset}/train/category2int.tsv').values.tolist())
         self.news['category'] = self.news['category'].map(category2int)
         self.news['subcategory'] = self.news['subcategory'].map(category2int)
         
@@ -63,7 +72,7 @@ class NewsDataset(Dataset):
             item['text'],
             padding='max_length',
             truncation=True,
-            max_length=config[args.dataset]['num_words_title'] + config[args.dataset]['num_words_abstract'],
+            max_length=self.num_words_title + self.num_words_abstract,
             return_tensors='pt'
         )
         return {
@@ -79,10 +88,12 @@ class BehaviorsDataset(Dataset):
     """
     Load behaviors for evaluation, (user, time) pair as session
     """
-    def __init__(self, behaviors_path):
+    def __init__(self, behaviors_path, cold_threshold=0, num_clicked_news_a_user=30):
         """
         Args:
             behaviors_path: path to behaviors file
+            cold_threshold: cold start threshold
+            num_clicked_news_a_user: maximum number of clicked news per user
         """
         super(BehaviorsDataset, self).__init__()
         self.behaviors = pd.read_table(behaviors_path,
@@ -96,10 +107,13 @@ class BehaviorsDataset(Dataset):
         self.behaviors['clicked_news'] = self.behaviors['clicked_news'].fillna(' ')
         self.behaviors['clicked_news'] = self.behaviors['clicked_news'].str.split()
 
-        if args.cold_threshold == 0:
-            max_clicked = config[args.dataset]['num_clicked_news_a_user']
+        self.cold_threshold = cold_threshold
+        self.num_clicked_news_a_user = num_clicked_news_a_user
+        
+        if cold_threshold == 0:
+            max_clicked = num_clicked_news_a_user
         else:
-            max_clicked = args.cold_threshold
+            max_clicked = cold_threshold
 
         # Truncate to max_clicked, no padding here
         self.behaviors['clicked_news'] = self.behaviors['clicked_news'].apply(
@@ -147,7 +161,7 @@ class UserDataset(Dataset):
         
         self.behaviors['clicked_news'] = self.behaviors['clicked_news'].fillna(' ')
 
-        user2int = dict(pd.read_table(f'data/{args.dataset}/train/user2int.tsv').values.tolist())
+        user2int = dict(pd.read_table(f'data/{self.dataset}/train/user2int.tsv').values.tolist())
         
         self.behaviors['user'] = self.behaviors['user'].map(user2int)
 
@@ -159,10 +173,10 @@ class UserDataset(Dataset):
 
         item = {
             "id": row.user,
-            "clicked_news": row.clicked_news.split()[-config[args.dataset]['num_clicked_news_a_user']:]
+            "clicked_news": row.clicked_news.split()[-self.num_clicked_news_a_user:]
         }
         item['clicked_news_length'] = len(item["clicked_news"])
-        repeated_times = config[args.dataset]['num_clicked_news_a_user'] - len(item["clicked_news"])
+        repeated_times = self.num_clicked_news_a_user - len(item["clicked_news"])
 
         item["clicked_news_mask"] = [0] * repeated_times + [1] * len(item["clicked_news"])
         item["clicked_news"] = ['PADDED_NEWS'] * repeated_times + item["clicked_news"]
@@ -170,17 +184,17 @@ class UserDataset(Dataset):
         return item
     
 class BaseDataset(Dataset):
-    def __init__(self, behaviors_path, news_path, config, args):
+    def __init__(self, behaviors_path, news_path, config):
         super(BaseDataset, self).__init__()
 
         self.config = config
-        self.args = args
-        self.tokenizer = AutoTokenizer.from_pretrained(config[args.dataset]['pretrained_model_name'])
+        self.dataset = config['_dataset']  # Get dataset from config
+        self.tokenizer = AutoTokenizer.from_pretrained(config['datasets'][self.dataset]['pretrained_model_name'])
 
         self.behaviors_parsed = pd.read_table(behaviors_path)
         self.behaviors_parsed['clicked_news'] = self.behaviors_parsed['clicked_news'].fillna(' ')
 
-        user2int = dict(pd.read_table(f'data/{args.dataset}/train/user2int.tsv').values.tolist())
+        user2int = dict(pd.read_table(f'data/{self.dataset}/train/user2int.tsv').values.tolist())
         self.behaviors_parsed['user'] = self.behaviors_parsed['user'].map(user2int)
         self.behaviors_parsed['user'] = self.behaviors_parsed['user'].fillna(0)
 
@@ -193,7 +207,7 @@ class BaseDataset(Dataset):
         self.news_parsed['title'] = self.news_parsed['title'].fillna('')
         self.news_parsed['abstract'] = self.news_parsed['abstract'].fillna('')
 
-        category2int = dict(pd.read_table(f'data/{args.dataset}/train/category2int.tsv').values.tolist())
+        category2int = dict(pd.read_table(f'data/{self.dataset}/train/category2int.tsv').values.tolist())
         self.news_parsed['category'] = self.news_parsed['category'].map(category2int)
         self.news_parsed['subcategory'] = self.news_parsed['subcategory'].map(category2int)
         self.news_parsed['category'] = self.news_parsed['category'].fillna(0)
@@ -231,10 +245,10 @@ class BaseDataset(Dataset):
                 raw['text'],
                 padding='max_length',
                 truncation=True,
-                max_length=self.config[self.args.dataset]['num_words_title'] + self.config[self.args.dataset]['num_words_abstract'],
+                max_length=self.config['datasets'][self.dataset]['num_words_title'] + self.config['datasets'][self.dataset]['num_words_abstract'],
                 return_tensors='pt'
             )
-            if (self.args.model == 'naml' or self.args.model == 'lstur') and (self.args.dataset == 'ebnerd_nyheder' or self.args.dataset == 'ebnerd_sport' or self.args.dataset == 'mind_news' or self.args.dataset == 'mind_sports'):
+            if (self.config['experiment']['model'] == 'naml' or self.config['experiment']['model'] == 'lstur') and False:  # No OOD datasets available
                 return {
                     'input_ids': tokenized['input_ids'],
                     'attention_mask': tokenized['attention_mask'],
@@ -265,13 +279,13 @@ class BaseDataset(Dataset):
         ]
         item["clicked"] = torch.tensor(clicked_labels).long()
 
-        clicked_news_ids = row.clicked_news.split()[-self.config[self.args.dataset]['num_clicked_news_a_user']:]
+        clicked_news_ids = row.clicked_news.split()[-self.config['datasets'][self.dataset]['num_clicked_news_a_user']:]
         item["clicked_news"] = [
             get_tokenized(x) for x in clicked_news_ids
         ]
 
         item["clicked_news_length"] = len(item["clicked_news"])
-        repeated_times = self.config[self.args.dataset]['num_clicked_news_a_user'] - len(item["clicked_news"])
+        repeated_times = self.config['datasets'][self.dataset]['num_clicked_news_a_user'] - len(item["clicked_news"])
         assert repeated_times >= 0
         item["clicked_news_mask"] = [0] * repeated_times + [1] * len(item["clicked_news"])
         item["clicked_news"] = [self.padding_tokenized] * repeated_times + item["clicked_news"]

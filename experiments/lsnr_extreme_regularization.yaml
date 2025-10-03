@@ -1,0 +1,31 @@
+# LSNR Very High Regularization Test
+# This experiment tests LSNR with much higher regularization to combat semantic collapse
+
+# Inherit from base configuration
+_base_: "base.yaml"
+
+# Experiment metadata
+experiment:
+  name: "lsnr_extreme_regularization"
+  model: "lsnr"
+  description: "LSNR with extreme regularization to combat semantic collapse"
+  tags: ["test", "lsnr", "extreme_regularization"]
+  notes: "LSNR trained with 1000x higher regularization to combat semantic collapse"
+
+# Model-specific overrides - extreme regularization
+models:
+  lsnr:
+    dropout_probability: 0.1
+    lambda_n: 0.1
+    lambda_u: 0.1
+
+# Training overrides
+training:
+  gradient_clip_norm: 0.5
+
+# Logging overrides
+logging:
+  wandb:
+    project: "auto"
+    tags: ["test", "lsnr", "extreme_regularization"]
+    notes: "LSNR test: extreme regularization (1000x) with uniform FLOPS regularization"

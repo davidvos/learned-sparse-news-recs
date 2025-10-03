@@ -1,0 +1,20 @@
+# LSTUR Baseline Experiment
+# This experiment uses the standard LSTUR configuration as a baseline
+
+# Inherit from base configuration
+_base_: "base.yaml"
+
+# Experiment metadata
+experiment:
+  name: "lstur_baseline"
+  model: "lstur"
+  description: "LSTUR baseline experiment with standard hyperparameters"
+  tags: ["baseline", "lstur"]
+  notes: "Standard LSTUR configuration for comparison with LSNR"
+
+# Logging overrides
+logging:
+  wandb:
+    project: "auto"
+    tags: ["baseline", "lstur"]
+    notes: "LSTUR baseline experiment"

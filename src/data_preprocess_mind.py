@@ -1,207 +1,353 @@
 """
 Preprocessing script for the MIND news recommendation dataset.
 
-This script parses and processes the behaviors files for training, validation, and test splits.
-It performs negative sampling for training, and supports cold-start filtering and user-based grouping for evaluation splits.
-
-Outputs are saved as tab-separated files ready for model training and evaluation.
+This version constructs validation and test splits by holding out the
+latest periods from the original training behaviors file, following the
+chronological evaluation protocol used in recent recommendation literature.
+Outputs are saved as tab-separated files ready for model training and
+evaluation.
 """
-import pandas as pd
-from tqdm import tqdm
+from __future__ import annotations
+
+import os
 from os import path
 import random
-import yaml
-import os
+from pathlib import Path
+from typing import List, Sequence, Set
 
-# Load configuration
-with open("./config.yaml", "r") as file:
-    config = yaml.safe_load(file)
+import pandas as pd
+from tqdm import tqdm
 
-def parse_behaviors(source_path, target_path):
-    """
-    Parse and balance the training behaviors file with negative sampling.
+from config import load_config
 
-    Args:
-        source_path (str): Path to the source behaviors.tsv file.
-        target_path (str): Path to save the processed output file.
-    """
-    behaviors = pd.read_table(
-        source_path,
-        header=None,
-        names=['impression_id', 'user', 'time', 'clicked_news', 'impressions'])
-    # Fill missing clicked_news with empty string
-    behaviors['clicked_news'] = behaviors['clicked_news'].fillna(' ')
 
-    # Normalize whitespace in clicked_news
-    behaviors.clicked_news = behaviors.clicked_news.apply(
-        lambda x: ' '.join(x.split()))
-    
-    # Split impressions into list
-    behaviors.impressions = behaviors.impressions.str.split()
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CONFIG_PATH = ROOT / "config.yaml"
+CONFIG_PATH = Path(os.environ.get("PREPROCESS_CONFIG", DEFAULT_CONFIG_PATH))
+config = load_config(str(CONFIG_PATH))
 
-    # For each row, create balanced positive/negative impression pairs
-    for row in tqdm(behaviors.itertuples(), desc="Balancing data"):
-        positive = iter([x for x in row.impressions if x.endswith('1')])
-        negative = [x for x in row.impressions if x.endswith('0')]
-        random.shuffle(negative)
-        negative = iter(negative)
-        pairs = []
-        try:
-            while True:
-                pair = [next(positive)]
-                for _ in range(config['negative_sampling_ratio']):
-                    pair.append(next(negative))
-                pairs.append(pair)
-        except StopIteration:
-            pass
-        behaviors.at[row.Index, 'impressions'] = pairs
+# Extract relevant config sections for easier access
+global_config = config["global"]
+training_config = config["training"]
+datasets_config = config["datasets"]
 
-    # Explode pairs into separate rows
-    behaviors = behaviors.explode('impressions').dropna(
-        subset=["impressions"]).reset_index(drop=True)
-    # Split impression pairs into candidate_news and clicked labels
-    behaviors[['candidate_news', 'clicked']] = pd.DataFrame(
-        behaviors.impressions.map(
-            lambda x: (' '.join([e.split('-')[0] for e in x]), ' '.join(
-                [e.split('-')[1] for e in x]))).tolist())
-    
-    # Save processed file
-    behaviors.to_csv(
-        target_path,
-        sep='\t',
-        index=False,
-        columns=['user', 'clicked_news', 'candidate_news', 'clicked'])
-    
-def parse_eval_behaviors(source_path, target_path, cold_threshold, split='val'):
-    """
-    Parse and group the evaluation (val/test) behaviors file, with optional cold-start filtering.
+
+def _normalize_clicked_news(text: str) -> str:
+    """Normalize whitespace in clicked history strings."""
+    if not isinstance(text, str):
+        return ""
+    return " ".join(text.split())
+
+
+def parse_behaviors_df(behaviors: pd.DataFrame, negative_sampling_ratio: int) -> pd.DataFrame:
+    """Balance training behaviors with negative sampling.
 
     Args:
-        source_path (str): Path to the source behaviors.tsv file.
-        target_path (str): Path to save the processed output file.
-        cold_threshold (int): Max number of clicked_news for a user to be included (0 disables filtering).
-        split (str): 'val' or 'test' to determine which half of users to use.
+        behaviors: DataFrame with columns impression_id, user, time,
+            clicked_news, impressions (MIND schema).
+        negative_sampling_ratio: Number of negatives per positive sample.
+
+    Returns:
+        DataFrame with columns user, clicked_news, candidate_news, clicked.
     """
-    behaviors = pd.read_table(
-        source_path,
-        header=None,
-        names=['impression_id', 'user', 'time', 'clicked_news', 'impressions'])
-    behaviors['clicked_news'] = behaviors['clicked_news'].fillna(' ')
+    if behaviors.empty:
+        return pd.DataFrame(columns=["user", "clicked_news", "candidate_news", "clicked"])
 
-    # Filter for cold-start users if threshold > 0
-    if cold_threshold != 0:
-        behaviors = behaviors[behaviors.clicked_news.apply(lambda x: len(x.split())) <= cold_threshold]
-        behaviors = behaviors[behaviors.clicked_news.apply(lambda x: len(x.split())) > 0]
-    
-    # Split impressions into list
-    behaviors.impressions = behaviors.impressions.str.split()
+    records: List[dict] = []
 
-    # Extract candidate news and clicked labels for each impression
-    behaviors['candidate_news'] = behaviors.impressions.apply(
-        lambda x: ' '.join([e.split('-')[0] for e in x]))
-    behaviors['clicked'] = behaviors.impressions.apply(
-        lambda x: ' '.join([e.split('-')[1] for e in x]))
-    
-    # Join impressions back into a single string for grouping
-    behaviors.impressions = behaviors.impressions.apply(
-        lambda x: ' '.join(x))
-    
-    # Group by user and combine all impressions for each user
-    print("Grouping impressions by user...")
-    grouped_behaviors = behaviors.groupby('user').agg({
-        'impression_id': lambda x: ' '.join(map(str, x)),
-        'time': lambda x: ' '.join(map(str, x)),
-        'clicked_news': lambda x: x.iloc[0],  # Always take the first clicked_news
-        'impressions': lambda x: ' '.join(x),
-        'candidate_news': lambda x: ' '.join(x),
-        'clicked': lambda x: ' '.join(x)
-    }).reset_index()
+    # Ensure deterministic behavior if a seed is provided globally
+    rng = random.Random()
+    rng.seed(global_config.get("seed", 42))
 
-    # Split users into val/test halves
-    if split == 'val':
-        grouped_behaviors = grouped_behaviors.iloc[:int(len(grouped_behaviors) * 0.5)].reset_index(drop=True)
-    elif split == 'test':
-        grouped_behaviors = grouped_behaviors.iloc[int(len(grouped_behaviors) * 0.5):].reset_index(drop=True)
-    
-    # Save processed file
-    grouped_behaviors.to_csv(
-        target_path,
-        sep='\t',
-        index=False,
-        header=False,
-        columns=['impression_id', 'user', 'time', 'clicked_news', 'impressions', 'candidate_news', 'clicked'])
+    tmp = behaviors.copy()
+    tmp["clicked_news"] = tmp["clicked_news"].fillna(" ").map(_normalize_clicked_news)
+    tmp["impressions_list"] = tmp["impressions"].str.split()
+
+    for row in tqdm(tmp.itertuples(index=False), total=len(tmp), desc="Balancing train impressions"):
+        impressions_list = row.impressions_list
+        if not impressions_list:
+            continue
+
+        positives = [candidate for candidate in impressions_list if candidate.endswith("1")]
+        negatives = [candidate for candidate in impressions_list if candidate.endswith("0")]
+        rng.shuffle(negatives)
+
+        if not positives or len(negatives) < negative_sampling_ratio:
+            continue
+
+        for i, pos in enumerate(positives):
+            start_idx = (i * negative_sampling_ratio) % len(negatives)
+            selected = [pos]
+            for offset in range(negative_sampling_ratio):
+                neg_idx = (start_idx + offset) % len(negatives)
+                selected.append(negatives[neg_idx])
+
+            candidate_news = " ".join(item.split("-")[0] for item in selected)
+            clicked = " ".join(item.split("-")[1] for item in selected)
+            records.append(
+                {
+                    "user": row.user,
+                    "clicked_news": row.clicked_news,
+                    "candidate_news": candidate_news,
+                    "clicked": clicked,
+                }
+            )
+
+    return pd.DataFrame(records, columns=["user", "clicked_news", "candidate_news", "clicked"])
 
 
-def create_user2int_category2int(behaviors_paths, news_paths, output_dirs):
-    """
-    Create user2int.tsv and category2int.tsv files from all splits (train, val, test),
-    and write them to each split's directory.
+def parse_eval_behaviors_df(
+    behaviors: pd.DataFrame, cold_threshold: int, min_history: int,
+) -> pd.DataFrame:
+    """Convert evaluation behaviors into MIND-style impression rows.
+
     Args:
-        behaviors_paths: list of paths to behaviors.tsv files (train, val, test)
-        news_paths: list of paths to news.tsv files (train, val, test)
-        output_dirs: list of directories to save the mapping files (train, val, test)
+        behaviors: DataFrame with columns impression_id, user, time,
+            clicked_news, impressions (MIND schema).
+        cold_threshold: Maximum history length allowed (0 disables filtering).
+        min_history: Minimum history length required to keep an impression.
+
+    Returns:
+        DataFrame with columns impression_id, user, time, clicked_news,
+        impressions, candidate_news, clicked suitable for evaluation.
     """
-    # User2int
-    all_users = set()
-    for p in behaviors_paths:
-        for chunk in pd.read_table(p, header=None, usecols=[1], names=['user'], chunksize=100000):
-            all_users.update(chunk['user'].unique())
-    user2int = {user: idx+1 for idx, user in enumerate(sorted(all_users))}
-    user2int_df = pd.DataFrame(list(user2int.items()), columns=['user','int'])
+    if behaviors.empty:
+        return pd.DataFrame(
+            columns=[
+                "impression_id",
+                "user",
+                "time",
+                "clicked_news",
+                "impressions",
+                "candidate_news",
+                "clicked",
+            ]
+        )
 
-    # Category2int
-    all_categories = set()
-    for p in news_paths:
-        for chunk in pd.read_table(p, header=None, usecols=[1,2], names=['category','subcategory'], chunksize=100000):
-            all_categories.update(chunk['category'].dropna().unique())
-            all_categories.update(chunk['subcategory'].dropna().unique())
-    all_categories = [c for c in all_categories if pd.notnull(c)]
-    category2int = {cat: idx+1 for idx, cat in enumerate(sorted(all_categories))}
-    category2int_df = pd.DataFrame(list(category2int.items()), columns=['category','int'])
+    tmp = behaviors.copy()
+    tmp["clicked_news"] = tmp["clicked_news"].fillna(" ").map(_normalize_clicked_news)
 
-    # Write to each output directory
-    for out_dir in output_dirs:
-        user2int_path = os.path.join(out_dir, 'user2int.tsv')
-        category2int_path = os.path.join(out_dir, 'category2int.tsv')
-        user2int_df.to_csv(user2int_path, sep='\t', index=False, header=False)
-        category2int_df.to_csv(category2int_path, sep='\t', index=False, header=False)
+    if cold_threshold:
+        lengths = tmp["clicked_news"].apply(lambda x: len(x.split()))
+        tmp = tmp[(lengths <= cold_threshold) & (lengths > 0)]
+
+    if min_history > 0:
+        tmp = tmp[tmp["clicked_news"].apply(lambda x: len(x.split())) >= min_history]
+
+    tmp["impressions_list"] = tmp["impressions"].str.split()
+    tmp = tmp[tmp["impressions_list"].map(bool)]
+    tmp["candidate_news"] = tmp["impressions_list"].apply(
+        lambda items: " ".join(candidate.split("-")[0] for candidate in items)
+    )
+    tmp["clicked"] = tmp["impressions_list"].apply(
+        lambda items: " ".join(candidate.split("-")[1] for candidate in items)
+    )
+    tmp["impressions"] = tmp["impressions_list"].apply(lambda items: " ".join(items))
+
+    return tmp[[
+        "impression_id",
+        "user",
+        "time",
+        "clicked_news",
+        "impressions",
+        "candidate_news",
+        "clicked",
+    ]]
 
 
-if __name__ == '__main__':
-    """
-    Main entry point for preprocessing MIND dataset behaviors files.
-    Processes training, validation, and test splits with various cold-start thresholds.
-    """
-    base = './data/mind'
-    train_dir = f'{base}/train'
-    val_dir = f'{base}/val'
-    test_dir = f'{base}/test'
+def collect_article_ids(behaviors: pd.DataFrame) -> Set[str]:
+    """Collect all article IDs referenced in behaviors rows."""
+    article_ids: Set[str] = set()
+    if behaviors.empty:
+        return article_ids
 
-    # Create user2int and category2int mappings
-    create_user2int_category2int(
-        [path.join(train_dir, 'behaviors.tsv'), path.join(val_dir, 'behaviors.tsv'), path.join(test_dir, 'behaviors.tsv')],
-        [path.join(train_dir, 'news.tsv'), path.join(val_dir, 'news.tsv'), path.join(test_dir, 'news.tsv')],
-        [train_dir, val_dir, test_dir]
+    clicked_series = behaviors["clicked_news"].fillna(" ").astype(str)
+    for history in clicked_series:
+        if not history:
+            continue
+        article_ids.update(piece for piece in history.split() if piece)
+
+    impressions_series = behaviors["impressions"].fillna("")
+    for impression in impressions_series:
+        for item in str(impression).split():
+            if "-" in item:
+                article_ids.add(item.split("-")[0])
+            else:
+                article_ids.add(item)
+
+    return article_ids
+
+
+def write_news_split(news_df: pd.DataFrame, article_ids: Set[str], output_path: str) -> None:
+    """Write a split-specific news file, falling back to full set if empty."""
+    if article_ids:
+        subset = news_df[news_df["id"].isin(article_ids)].copy()
+        if subset.empty:
+            subset = news_df.copy()
+    else:
+        subset = news_df.copy()
+
+    subset.to_csv(output_path, sep="\t", index=False, header=False)
+
+
+def create_user2int_category2int(
+    behaviors_dfs: Sequence[pd.DataFrame],
+    news_dfs: Sequence[pd.DataFrame],
+    output_dirs: Sequence[str],
+) -> None:
+    """Create shared mapping files across all provided splits."""
+    all_users: Set[str] = set()
+    for df in behaviors_dfs:
+        if df is None or df.empty:
+            continue
+        all_users.update(df["user"].astype(str).unique().tolist())
+
+    user2int = {user: idx + 1 for idx, user in enumerate(sorted(all_users))}
+    user2int_df = pd.DataFrame(list(user2int.items()), columns=["user", "int"])
+
+    all_categories: Set[str] = set()
+    for df in news_dfs:
+        if df is None or df.empty:
+            continue
+        all_categories.update(df["category"].dropna().astype(str).tolist())
+        all_categories.update(df["subcategory"].dropna().astype(str).tolist())
+
+    category2int = {cat: idx + 1 for idx, cat in enumerate(sorted(all_categories))}
+    category2int_df = pd.DataFrame(list(category2int.items()), columns=["category", "int"])
+
+    for directory in output_dirs:
+        os.makedirs(directory, exist_ok=True)
+        user2int_df.to_csv(path.join(directory, "user2int.tsv"), sep="\t", index=False, header=False)
+        category2int_df.to_csv(path.join(directory, "category2int.tsv"), sep="\t", index=False, header=False)
+
+
+def _read_behaviors(path_to_file: str) -> pd.DataFrame:
+    columns = ["impression_id", "user", "time", "clicked_news", "impressions"]
+    return pd.read_table(path_to_file, header=None, names=columns)
+
+
+def _read_news(path_to_file: str) -> pd.DataFrame:
+    columns = [
+        "id",
+        "category",
+        "subcategory",
+        "title",
+        "abstract",
+        "url",
+        "title_entities",
+        "abstract_entities",
+    ]
+    return pd.read_table(path_to_file, header=None, names=columns)
+
+
+if __name__ == "__main__":
+    base_path = datasets_config["mind"]["path"]
+    train_dir = path.join(base_path, "train")
+    val_dir = path.join(base_path, "val")
+    test_dir = path.join(base_path, "test")
+
+    for directory in (train_dir, val_dir, test_dir):
+        os.makedirs(directory, exist_ok=True)
+
+    behaviors_path = path.join(train_dir, "behaviors.tsv")
+    news_path = path.join(train_dir, "news.tsv")
+
+    if not path.exists(behaviors_path):
+        raise FileNotFoundError(f"Missing training behaviors file: {behaviors_path}")
+    if not path.exists(news_path):
+        raise FileNotFoundError(f"Missing training news file: {news_path}")
+
+    behaviors = _read_behaviors(behaviors_path)
+    train_news_df = _read_news(news_path)
+
+    original_val_behaviors_path = path.join(val_dir, "behaviors.tsv")
+    original_val_news_path = path.join(val_dir, "news.tsv")
+    if not path.exists(original_val_behaviors_path) or not path.exists(original_val_news_path):
+        raise FileNotFoundError(
+            "Expected original MIND validation files (behaviors.tsv and news.tsv) to exist under "
+            f"{val_dir}."
+        )
+    official_val_behaviors = _read_behaviors(original_val_behaviors_path)
+    official_val_news_df = _read_news(original_val_news_path)
+
+    # Chronological split parameters
+    mind_cfg = datasets_config["mind"]
+    min_history_eval = int(mind_cfg.get("min_history_for_eval", 1))
+
+    behaviors["timestamp"] = pd.to_datetime(behaviors["time"], errors="coerce")
+    behaviors = behaviors.dropna(subset=["timestamp"]).copy()
+    behaviors.sort_values("timestamp", inplace=True)
+
+    total_rows = len(behaviors)
+    if total_rows < 10:
+        raise ValueError("Expected at least 10 impressions to perform a 90/10 split.")
+
+    split_index = int(total_rows * 0.9)
+    split_index = min(max(split_index, 1), total_rows - 1)
+
+    print(
+        "Splitting MIND train behaviors — train rows: {}, validation rows (10%): {}".format(
+            split_index, total_rows - split_index
+        )
     )
 
-    print('Process data for training')
-    print('Parse behaviors')
-    parse_behaviors(path.join(train_dir, 'behaviors.tsv'),
-                    path.join(train_dir, f'behaviors_parsed.tsv'))
-    
-    for cold_threshold in [0, 1, 2, 3, 4, 5]:
-        print(f'Parse validation behaviors with cold threshold {cold_threshold}')
-        parse_eval_behaviors(
-            path.join(val_dir, 'behaviors.tsv'),
-            path.join(val_dir, f'behaviors_parsed_cold{cold_threshold}.tsv'),
-            cold_threshold=cold_threshold,
-            split='val'
-        )
+    train_behaviors = behaviors.iloc[:split_index].copy()
+    val_behaviors = behaviors.iloc[split_index:].copy()
+    test_behaviors = official_val_behaviors.copy()
 
-        print(f'Parse test behaviors with cold threshold {cold_threshold}')
-        parse_eval_behaviors(
-            path.join(test_dir, 'behaviors.tsv'),
-            path.join(test_dir, f'behaviors_parsed_cold{cold_threshold}.tsv'),
-            cold_threshold=cold_threshold,
-            split='test'
-        )
+    for df in (train_behaviors, val_behaviors, test_behaviors):
+        df.drop(columns=["timestamp"], inplace=True, errors="ignore")
+
+    # Persist raw evaluation splits to ease inspection / reuse
+    if not val_behaviors.empty:
+        val_behaviors.to_csv(path.join(val_dir, "behaviors.tsv"), sep="\t", index=False, header=False)
+    if not test_behaviors.empty:
+        test_behaviors.to_csv(path.join(test_dir, "behaviors.tsv"), sep="\t", index=False, header=False)
+
+    # Prepare news splits (include union of articles referenced in each split)
+    combined_news_df = (
+        pd.concat([train_news_df, official_val_news_df], ignore_index=True)
+        .drop_duplicates(subset=["id"], keep="last")
+    )
+
+    train_news_ids = collect_article_ids(train_behaviors)
+    val_news_ids = collect_article_ids(pd.concat([train_behaviors, val_behaviors], ignore_index=True))
+    test_news_ids = collect_article_ids(pd.concat([train_behaviors, val_behaviors, test_behaviors], ignore_index=True))
+
+    write_news_split(train_news_df, train_news_ids, path.join(train_dir, "news.tsv"))
+    write_news_split(combined_news_df, val_news_ids, path.join(val_dir, "news.tsv"))
+    write_news_split(combined_news_df, test_news_ids, path.join(test_dir, "news.tsv"))
+
+    # Create mapping files shared across splits
+    create_user2int_category2int(
+        [train_behaviors, val_behaviors, test_behaviors],
+        [train_news_df, combined_news_df, combined_news_df],
+        [train_dir, val_dir, test_dir],
+    )
+
+    print("Process data for training")
+    print("Parse behaviors")
+    train_output_path = path.join(train_dir, "behaviors_parsed.tsv")
+    train_processed = parse_behaviors_df(
+        train_behaviors,
+        negative_sampling_ratio=int(global_config.get("negative_sampling_ratio", 4)),
+    )
+    train_processed.to_csv(train_output_path, sep="\t", index=False)
+
+    cold_thresholds = [0, 1, 2, 3, 4, 5]
+    config_cold_threshold = training_config.get("cold_threshold", 1)
+    if config_cold_threshold not in cold_thresholds:
+        cold_thresholds.append(config_cold_threshold)
+
+    for cold_threshold in sorted(cold_thresholds):
+        print(f"Parse validation behaviors with cold threshold {cold_threshold}")
+        val_processed = parse_eval_behaviors_df(val_behaviors, cold_threshold, min_history_eval)
+        val_output_path = path.join(val_dir, f"behaviors_parsed_cold{cold_threshold}.tsv")
+        val_processed.to_csv(val_output_path, sep="\t", index=False, header=False)
+
+        print(f"Parse test behaviors with cold threshold {cold_threshold}")
+        test_processed = parse_eval_behaviors_df(test_behaviors, cold_threshold, min_history_eval)
+        test_output_path = path.join(test_dir, f"behaviors_parsed_cold{cold_threshold}.tsv")
+        test_processed.to_csv(test_output_path, sep="\t", index=False, header=False)
+
+    print("Preprocessing complete.")

@@ -4,44 +4,6 @@ import torch.nn.functional as F
 from model.general.attention.multihead_self import MultiHeadSelfAttention
 from model.general.attention.additive import AdditiveAttention
 
-class L1Regularizer(nn.Module):
-    """
-    L1 regularization term with a linearly increasing schedule for alpha.
-    Encourages sparsity in user representations over training steps.
-    """
-    def __init__(self, T: int = 5000, alpha: float = 0.02):
-        """
-        Args:
-            T (int): Number of steps for the regularization schedule.
-            alpha (float): Maximum value for the regularization coefficient.
-        """
-        super().__init__()
-        self.T = T
-        self.max_alpha = alpha
-        self.current_step = 0
-        self.current_alpha = 0
-
-    def forward(self, reps):
-        """
-        Compute the L1 regularization term.
-        Args:
-            reps (Tensor): [batch_size, ...] representation tensor.
-        Returns:
-            reg (Tensor): Regularization loss term.
-        """
-        reg = torch.abs(reps).sum(dim=1).mean() * self.current_alpha
-        self.step()
-        return reg
-
-    def step(self):
-        """
-        Update the current step and adjust the alpha value based on the schedule.
-        """
-        if self.current_step < self.T:
-            self.current_step += 1
-            # Linear schedule for alpha
-            self.current_alpha = (self.current_step / self.T) * self.max_alpha
-        # After T steps, alpha stays at max_alpha
 
 class GatedProjection(nn.Module):
     """
@@ -59,9 +21,45 @@ class GatedProjection(nn.Module):
         super().__init__()
         self.fc_gate = nn.Linear(in_features, out_features)        # Computes the gate
         self.fc_transform = nn.Linear(in_features, out_features)  # Computes the transformation
-        # Use BERT's MLM output projection weights
-        self.fc_transform.weight = plm.cls.predictions.decoder.weight
-        self.fc_transform.bias = plm.cls.predictions.decoder.bias
+        # Tie to the PLM's output head weights across architectures
+        tied_weight = None
+        tied_bias = None
+        if hasattr(plm, 'cls') and hasattr(plm.cls, 'predictions') and hasattr(plm.cls.predictions, 'decoder'):
+            tied_weight = plm.cls.predictions.decoder.weight
+            tied_bias = getattr(plm.cls.predictions, 'bias', None)
+            if tied_bias is None and hasattr(plm.cls.predictions.decoder, 'bias'):
+                tied_bias = plm.cls.predictions.decoder.bias
+        elif hasattr(plm, 'lm_head'):
+            decoder = getattr(plm.lm_head, 'decoder', None)
+            if decoder is not None and hasattr(decoder, 'weight'):
+                tied_weight = decoder.weight
+                tied_bias = getattr(plm.lm_head, 'bias', None)
+        if tied_weight is None:
+            try:
+                out_emb = plm.get_output_embeddings()
+                tied_weight = out_emb.weight
+                tied_bias = getattr(out_emb, 'bias', None)
+            except Exception:
+                tied_weight = None
+                tied_bias = None
+        if tied_weight is not None and tied_weight.shape[0] == out_features:
+            # Use PLM weights directly if dimensions match
+            self.fc_transform.weight = tied_weight
+            if tied_bias is not None:
+                self.fc_transform.bias = tied_bias
+        else:
+            # Initialize with Xavier uniform if dimensions don't match
+            nn.init.xavier_uniform_(self.fc_transform.weight)
+            if self.fc_transform.bias is not None:
+                nn.init.zeros_(self.fc_transform.bias)
+            
+            # Copy overlapping weights from PLM if available
+            if tied_weight is not None:
+                min_vocab_size = min(out_features, tied_weight.shape[0])
+                with torch.no_grad():
+                    self.fc_transform.weight[:min_vocab_size] = tied_weight[:min_vocab_size]
+                    if tied_bias is not None and self.fc_transform.bias is not None:
+                        self.fc_transform.bias[:min_vocab_size] = tied_bias[:min_vocab_size]
         self.dropout = nn.Dropout(dropout_prob)
 
     def forward(self, x):
@@ -81,17 +79,19 @@ class UserEncoder(nn.Module):
     Encodes user interactions with news articles using attention mechanisms and projection layers.
     Produces a sparse user representation for downstream tasks.
     """
-    def __init__(self, config, plm, device):
+    def __init__(self, config, dataset_config, plm, device):
         """
         Args:
             config (dict): Model configuration.
+            dataset_config (dict): Dataset configuration.
             plm (nn.Module): Pre-trained language model.
             device (torch.device): Device to run the model on.
         """
         super().__init__()
         self.config = config
         self.device = device
-        self.sparse_dim = plm.config.vocab_size
+        # Use configurable sparse vocab size, fallback to PLM vocab size if not specified
+        self.sparse_dim = dataset_config.get('sparse_vocab_size', plm.config.vocab_size)
         self.reduced_dim = plm.config.hidden_size
         self.embedding_dim = self.reduced_dim
         self.dropout_prob = config['dropout_probability']
@@ -108,9 +108,14 @@ class UserEncoder(nn.Module):
             nn.Linear(self.reduced_dim, self.reduced_dim)
         )
         # Gated projection to sparse space
+        # Optional LayerNorm before gated projection for stability and interpretability
+        self.enable_pre_gated_layernorm = bool(config.get('user_pre_gated_layernorm', False))
+        if self.enable_pre_gated_layernorm:
+            self.pre_gated_layernorm = nn.LayerNorm(self.embedding_dim)
+        else:
+            self.pre_gated_layernorm = None
+
         self.gated_projection = GatedProjection(self.embedding_dim, self.sparse_dim, self.dropout_prob, plm)
-        # L1 regularizer for sparsity (SPLADE-style)
-        self.regularizer = L1Regularizer(alpha=0.0003, T=10000)
 
     def forward(self, article_vectors):
         """
@@ -119,7 +124,6 @@ class UserEncoder(nn.Module):
             article_vectors (Tensor): [batch_size, seq_len, sparse_dim] input news vectors.
         Returns:
             user_emb (Tensor): [batch_size, sparse_dim] sparse user representation.
-            reg (Tensor): Regularization loss term.
         """
         # Reduce dimension from sparse to dense
         user_emb = self.dim_reduction(article_vectors)
@@ -128,9 +132,9 @@ class UserEncoder(nn.Module):
         # Aggregate with additive attention
         user_emb = self.additive_attention(user_emb)
         # Project to sparse space with gating
+        if self.pre_gated_layernorm is not None:
+            user_emb = self.pre_gated_layernorm(user_emb)
         user_emb = self.gated_projection(user_emb)
         # Apply log1p(ReLU(.)) for SPLADE-style sparsity
         user_emb = torch.log1p(torch.relu(user_emb))
-        # Compute L1 regularization
-        reg = self.regularizer(user_emb)
-        return user_emb, reg
+        return user_emb

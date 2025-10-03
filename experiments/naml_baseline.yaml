@@ -1,0 +1,20 @@
+# NRMS Baseline Experiment
+# This experiment uses the standard NRMS configuration as a baseline
+
+# Inherit from base configuration
+_base_: "base.yaml"
+
+# Experiment metadata
+experiment:
+  name: "naml_baseline"
+  model: "naml"
+  description: "NAML baseline experiment with standard hyperparameters"
+  tags: ["baseline", "naml"]
+  notes: "Standard NAML configuration for comparison with LSNR"
+
+# Logging overrides
+logging:
+  wandb:
+    project: "auto"
+    tags: ["baseline", "naml"]
+    notes: "NAML baseline experiment"

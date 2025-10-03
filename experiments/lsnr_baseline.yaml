@@ -1,0 +1,20 @@
+# LSNR Baseline Experiment
+# This experiment uses the standard LSNR configuration as a baseline
+
+# Inherit from base configuration
+_base_: "base.yaml"
+
+# Experiment metadata
+experiment:
+  name: "lsnr_baseline"
+  model: "lsnr"
+  description: "LSNR baseline experiment with standard hyperparameters"
+  tags: ["baseline", "lsnr"]
+  notes: "Standard LSNR configuration for comparison with other methods"
+
+# Logging overrides (metadata only)
+logging:
+  wandb:
+    project: "auto"
+    tags: ["baseline", "lsnr"]
+    notes: "LSNR baseline experiment"

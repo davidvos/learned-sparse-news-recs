@@ -1,79 +1,126 @@
-negative_sampling_ratio: 4
+# Configuration for Learned Sparse News Recommenders (LSNR).
+#
+# This file collects the shared defaults used by preprocessing, training, and
+# evaluation so that experiments only need to override the pieces they change.
+# All experiment YAML files under `experiments/` inherit from this file via the
+# `_base_` key.
 
-mind: 
-  path: './data/mind'
-  num_clicked_news_a_user: 30
-  num_words_title: 20
-  num_words_abstract: 50
-  pretrained_model_name: 'bert-base-uncased'
+# Global settings shared across scripts
+global:
+  seed: 42
+  device: "auto"  # auto, cuda, mps, cpu
+  data_path: "./data/adressa_raw"          # Raw Adressa logs (for preprocessing)
+  output_path: "./data/adressa"            # Processed Adressa splits
+  history_size: 30                          # Max history length for user sequences
+  negative_sampling_ratio: 8                # Negatives per positive for training data
+  eval_negative_samples: 4                  # Negatives per positive impression at eval
+  min_interactions: 0                       # Filter threshold applied during preprocessing
+  use_adressa_style_preprocessing: true
+  negative_sampling_exclude_history: true
+  negative_sampling_mode: "uniform"        # "uniform" or "popularity"
+  negative_sampling_popularity_top_k: 5000
+  eval_negative_sampling_mode: "uniform"
+  eval_negative_sampling_popularity_top_k: 5000
 
-mind_sports:
-  path: './data/mind_sports'
-  num_clicked_news_a_user: 30
-  num_words_title: 30
-  num_words_abstract: 40
-  pretrained_model_name: 'bert-base-uncased'
+# Training defaults (individual experiments override as needed)
+training:
+  learning_rate: 0.00001
+  batch_size: 16
+  num_epochs: 10
+  num_workers: 2
+  eval_every: 500
+  cold_threshold: 0
+  eval_split: "val"  # val or test
+  gradient_clip_norm: 1.0
+  scheduler:
+    type: "step"  # step, cosine, plateau
+    step_size: 1000
+    gamma: 0.9
+  early_stopping:
+    patience: 100
+    monitor: "val_auc"
+    mode: "max"
 
-mind_news:
-  path: './data/mind_news'
-  num_clicked_news_a_user: 30
-  num_words_title: 30
-  num_words_abstract: 40
-  pretrained_model_name: 'bert-base-uncased'
+# Dataset specifications
+datasets:
+  mind:
+    path: "./data/mind"
+    num_clicked_news_a_user: 30
+    num_words_title: 20
+    num_words_abstract: 50
+    pretrained_model_name: "bert-base-uncased"
 
-ebnerd:
-  path: './data/ebnerd'
-  num_clicked_news_a_user: 30
-  num_words_title: 20
-  num_words_abstract: 50
-  pretrained_model_name: 'google-bert/bert-base-multilingual-uncased'
+  ebnerd:
+    path: "./data/ebnerd"
+    num_clicked_news_a_user: 30
+    num_words_title: 20
+    num_words_abstract: 50
+    pretrained_model_name: "google-bert/bert-base-multilingual-uncased"
 
-ebnerd_nyheder:
-  path: './data/ebnerd_nyheder'
-  num_clicked_news_a_user: 30
-  num_words_title: 20
-  num_words_abstract: 50
-  pretrained_model_name: 'google-bert/bert-base-multilingual-uncased'
+  adressa:
+    path: "./data/adressa"
+    raw_path: "./data/adressa_raw"
+    num_clicked_news_a_user: 30
+    num_words_title: 20
+    num_words_abstract: 0
+    pretrained_model_name: "NbAiLab/nb-bert-base"
+    sparse_vocab_size: 30522
+    train_ratio: 0.7
+    val_ratio: 0.2
+    num_weeks: 4
+    sequence_length: 30
+    time_window_hours: 3
 
-ebnerd_sport:
-  path: './data/ebnerd_sport'
-  num_clicked_news_a_user: 30
-  num_words_title: 20
-  num_words_abstract: 50
-  pretrained_model_name: 'google-bert/bert-base-multilingual-uncased'
+# Model hyperparameters
+models:
+  lsnr:
+    model: "lsnr"
+    num_attention_heads: 16
+    query_vector_dim: 200
+    dropout_probability: 0.2
+    lambda_n: 1e-4
+    lambda_u: 1e-4
+    lambda_scheduler_steps: 0
+    lambda_scheduler_warmup: false
+    news_pre_projection_layernorm: true
+    user_pre_gated_layernorm: true
 
-lsnr:
-  model: 'lsnr'
-  num_attention_heads: 16
-  query_vector_dim: 200
-  dropout_probability: 0.1
+  nrms:
+    model: "nrms"
+    num_attention_heads: 16
+    query_vector_dim: 200
+    dropout_probability: 0.2
 
-nrms:
-  model: 'nrms'
-  num_attention_heads: 16
-  query_vector_dim: 200
-  dropout_probability: 0.2
+  naml:
+    model: "naml"
+    num_attention_heads: 16
+    query_vector_dim: 200
+    dropout_probability: 0.2
+    num_filters: 300
+    window_size: 3
+    num_categories: 288
+    category_embedding_dim: 100
 
-naml:
-  model: 'naml'
-  num_attention_heads: 16
-  query_vector_dim: 200
-  dropout_probability: 0.2
-  num_filters: 300
-  window_size: 3
-  num_categories: 288
-  # num_categories: 109
-  category_embedding_dim: 100
+  lstur:
+    model: "lstur"
+    num_attention_heads: 16
+    query_vector_dim: 200
+    dropout_probability: 0.2
+    num_filters: 300
+    window_size: 3
+    num_categories: 288
+    category_embedding_dim: 100
+    num_users: 595706
 
-lstur:
-  model: 'lstur'
-  num_attention_heads: 16
-  query_vector_dim: 200
-  dropout_probability: 0.2
-  num_filters: 300
-  window_size: 3
-  num_categories: 288
-  # num_categories: 109
-  category_embedding_dim: 100
-  num_users: 94057
-  # num_users: 30482
+# Logging configuration
+logging:
+  wandb:
+    project: "auto"  # auto-generates based on dataset
+    entity: null      # set to your wandb entity if needed
+    tags: []
+    notes: ""
+  checkpoint:
+    save_dir: "./checkpoints"
+    save_best_only: true
+    monitor: "val_auc"
+    mode: "max"

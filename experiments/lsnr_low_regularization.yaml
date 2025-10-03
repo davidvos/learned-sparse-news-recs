@@ -1,0 +1,26 @@
+# LSNR Low Regularization Experiment
+# This experiment tests LSNR with lower regularization
+
+# Inherit from base configuration
+_base_: "base.yaml"
+
+# Experiment metadata
+experiment:
+  name: "lsnr_low_regularization"
+  model: "lsnr"
+  description: "LSNR with low regularization - ablation study"
+  tags: ["ablation", "lsnr", "low_regularization"]
+  notes: "LSNR trained with 10x lower regularization"
+
+# Model-specific overrides - low regularization
+models:
+  lsnr:
+    lambda_n: 1e-5  # 10x lower regularization
+    lambda_u: 1e-5  # 10x lower regularization
+
+# Logging overrides
+logging:
+  wandb:
+    project: "auto"
+    tags: ["ablation", "lsnr", "low_regularization"]
+    notes: "LSNR ablation: low regularization (1e-5)"

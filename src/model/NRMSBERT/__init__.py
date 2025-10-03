@@ -111,3 +111,4 @@ class NRMSBERT(torch.nn.Module):
 
     def get_prediction(self, news_vector, user_vector):
         return self.click_predictor(news_vector, user_vector)
+    

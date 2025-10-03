@@ -49,12 +49,29 @@ class LSTURBERT(torch.nn.Module):
         Returns:
             click_probability: batch_size
         """
-        # batch_size, 1 + K, num_filters
-        candidate_news_vector = torch.stack(
-            [self.news_encoder(x) for x in candidate_news], dim=1)
-        # batch_size, num_clicked_news_a_user, num_filters
-        clicked_news_vector = torch.stack(
-            [self.news_encoder(x) for x in clicked_news], dim=1)
+        # Batch process candidate news: concatenate along batch dim and encode once
+        num_candidates = len(candidate_news)
+        batch_size = candidate_news[0]['input_ids'].shape[0]
+        batched_candidate = {
+            'input_ids': torch.cat([news['input_ids'] for news in candidate_news], dim=0),
+            'attention_mask': torch.cat([news['attention_mask'] for news in candidate_news], dim=0),
+            'category': torch.cat([news['category'] for news in candidate_news], dim=0),
+            'subcategory': torch.cat([news['subcategory'] for news in candidate_news], dim=0),
+        }
+        candidate_vecs_batched = self.news_encoder(batched_candidate)
+        # Reshape back to (batch_size, num_candidates, embedding_dim)
+        candidate_news_vector = candidate_vecs_batched.view(num_candidates, batch_size, -1).transpose(0, 1)
+
+        # Batch process clicked news similarly
+        num_clicked = len(clicked_news)
+        batched_clicked = {
+            'input_ids': torch.cat([news['input_ids'] for news in clicked_news], dim=0),
+            'attention_mask': torch.cat([news['attention_mask'] for news in clicked_news], dim=0),
+            'category': torch.cat([news['category'] for news in clicked_news], dim=0),
+            'subcategory': torch.cat([news['subcategory'] for news in clicked_news], dim=0),
+        }
+        clicked_vecs_batched = self.news_encoder(batched_clicked)
+        clicked_news_vector = clicked_vecs_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
         
         # Apply mask to clicked news vectors
         clicked_news_mask_tensor = torch.stack(clicked_news_mask).to(self.device)
@@ -99,3 +116,4 @@ class LSTURBERT(torch.nn.Module):
 
     def get_prediction(self, news_vector, user_vector):
         return self.click_predictor(news_vector, user_vector)
+    

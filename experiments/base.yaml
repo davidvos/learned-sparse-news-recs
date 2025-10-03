@@ -1,0 +1,8 @@
+# Backwards-compatible base loader for experiment configs.
+#
+# Historically the project stored the canonical defaults in this file. The
+# defaults now live in `config.yaml` at the repository root; this stub keeps the
+# relative path used by existing scripts while delegating the actual values to
+# the shared configuration.
+
+_base_: "../config.yaml"

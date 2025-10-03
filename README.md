@@ -50,18 +50,6 @@ mv data/ebnerd/validation data/ebnerd/val
 cp -r data/ebnerd/val/* data/ebnerd/test
 ```
 
-5. To create folder for the out-of-distribution setting we need to copy the MIND and EBNeRD datasets to the new folder. You can do this by running the following commands:
-```bash
-mkdir data/mind_news data/mind_news/train data/mind_news/val data/mind_news/test
-mkdir data/mind_sports data/mind_sports/train data/mind_sports/val data/mind_sports/test
-mkdir data/ebnerd_nyheder data/ebnerd_nyheder/train data/ebnerd_nyheder/val data/ebnerd_nyheder/test
-mkdir data/ebnerd_sport data/ebnerd_sport/train data/ebnerd_sport/val data/ebnerd_sport/test
-
-cp -r data/mind/* data/mind_news/
-cp -r data/mind/* data/mind_sports/
-cp -r data/ebnerd/* data/ebnerd_nyheder/
-cp -r data/ebnerd/* data/ebnerd_sport/
-```
 
 6. Install the required packages by running the following command:
 ```bash
@@ -75,20 +63,20 @@ python src/data_preprocess_mind.py
 ```bash
 python src/data_preprocess_ebnerd.py
 ```
-These commands will pre-process the data for the regular and user cold-start settings. To pre-process the data for the out-of-distrubution setting, run the following commands:
-```bash
-python src/data_preprocess_mind_ood.py
-```
-```bash
-python src/data_preprocess_ebnerd_ood.py
-```
+These commands will pre-process the data for the regular and user cold-start settings.
 
-1. For the ```--dataset``` argument you can choose between 'mind', 'ebnerd', 'mind_news', 'mind_sports', 'ebnerd_nyheder' and 'ebnerd_sport'. For the ```--model``` argument you can choose between 'lsnr', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
+1. For the ```--dataset``` argument you can choose between 'mind' and 'ebnerd'. For the ```--model``` argument you can choose between 'lsnr', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
 ```bash
 python src/train.py --dataset mind --model lsnr --batch_size 32 --eval_every 1000 --num_workers 4 --num_epochs 10 --learning_rate 0.00001
 ```
 
 1. Evaluate the model by running the following command:
 ```bash
-python src/evaluate.py --dataset mind --model lsnr --batch_size 32 --num_workers 4 --n_epochs 10 --learning_rate 0.00001
+# Evaluate on validation set (default)
+python src/evaluate.py --dataset mind --model lsnr --batch_size 32 --num_workers 4 --learning_rate 0.00001
+
+# Evaluate on test set
+python src/evaluate.py --dataset mind --model lsnr --batch_size 32 --num_workers 4 --learning_rate 0.00001 --eval_split test
 ```
+
+The evaluation script now performs retrieval on all candidate news from the specified eval/test set, rather than just using the candidates for each specific user behavior. This provides a more comprehensive retrieval evaluation where each user's preferences are matched against the entire candidate pool from all users in the dataset.
