@@ -50,13 +50,6 @@ datasets:
     num_words_abstract: 50
     pretrained_model_name: "bert-base-uncased"
 
-  ebnerd:
-    path: "./data/ebnerd"
-    num_clicked_news_a_user: 30
-    num_words_title: 20
-    num_words_abstract: 50
-    pretrained_model_name: "google-bert/bert-base-multilingual-uncased"
-
   adressa:
     path: "./data/adressa"
     raw_path: "./data/adressa_raw"

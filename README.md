@@ -2,7 +2,7 @@
 
 Repository accompanying the SIGIR paper **“Reliable and Controllable Learned Sparse News Recommendations for Short-History Users.”**
 
-LSNR learns sparse, bag-of-words-style user profiles that restore reliable retrieval quality for short-history users while retaining an explicit performance–efficiency trade-off. This codebase reproduces the paper’s experiments across MIND, Adressa/EB-NeRD, and internal ablations, and provides utilities to adapt the approach to new settings. Unless otherwise stated, examples assume the 10-week Adressa setup described below.
+LSNR learns sparse, bag-of-words-style user profiles that restore reliable retrieval quality for short-history users while retaining an explicit performance–efficiency trade-off. This codebase reproduces the paper’s experiments across MIND and Adressa, and internal ablations, and provides utilities to adapt the approach to new settings. Unless otherwise stated, examples assume the 10-week Adressa setup described below.
 
 ---
 
@@ -37,7 +37,6 @@ Create the canonical directory layout before unpacking datasets:
 
 ```bash
 mkdir -p data/mind/{train,val,test}
-mkdir -p data/ebnerd/{train,val,test}
 mkdir -p data/adressa/{train,val,test}
 ```
 
@@ -51,7 +50,7 @@ unzip MINDsmall_dev.zip   -d data/mind/val
 unzip MINDsmall_dev.zip   -d data/mind/test
 ```
 
-### 2.3 Adressa 10-week
+### 2.2 Adressa 10-week
 
 Download the 10-week Adressa release and unpack it under `data/adressa/raw`:
 
@@ -73,8 +72,7 @@ Preprocessing scripts materialize the tokenised splits, mapping files, and cold-
 # MIND
 python src/data_preprocess_mind.py
 
-# Adressa / EB-NeRD
-python src/data_preprocess_adressa.py --dataset ebnerd
+# Adressa
 python src/data_preprocess_adressa.py --dataset adressa
 ```
 

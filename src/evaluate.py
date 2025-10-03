@@ -192,7 +192,7 @@ def eval_retrieval(
 
     behaviors_file = os.path.join(dataset_path, split, f"behaviors_parsed_cold{cold_threshold}.tsv")
 
-    if dataset_type in ['ebnerd', 'adressa']:
+    if dataset_type == 'adressa':
         behaviors_dataset = AdressaBehaviorsDataset(
             behaviors_file,
             cold_threshold=cold_threshold,
@@ -321,8 +321,8 @@ def build_news_vectors(model, config, dataset_type, model_type, batch_size, num_
     pretrained_model_name = config['datasets'][dataset_type]['pretrained_model_name']
     num_words_title = config['datasets'][dataset_type]['num_words_title']
     num_words_abstract = config['datasets'][dataset_type]['num_words_abstract']
-    # Use ebnerd/adressa datasets if dataset is ebnerd or adressa
-    if dataset_type in ['ebnerd', 'adressa']:
+    # Use Adressa-specific dataset when applicable
+    if dataset_type == 'adressa':
         news_dataset = AdressaNewsDataset(f"{dataset_path}/{split}/news.tsv", pretrained_model_name, model_type, dataset_type, num_words_title, num_words_abstract)
     else:
         news_dataset = NewsDataset(f"{dataset_path}/{split}/news.tsv", pretrained_model_name, model_type, dataset_type, num_words_title, num_words_abstract)
@@ -357,7 +357,7 @@ def build_news_vectors(model, config, dataset_type, model_type, batch_size, num_
         news_vectors = news_vectors.detach().cpu()
         # Store vectors and categories
         for news_id, news_vector, category in zip(news_ids, news_vectors, batch['category']):
-            # Support both tensor ids (e.g., mind) and string ids (e.g., adressa/ebnerd)
+            # Support both tensor ids (e.g., mind) and string ids (e.g., adressa)
             try:
                 nid = str(news_id.item())
             except Exception:
@@ -443,7 +443,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         '--dataset',
         default='mind',
-        choices=['mind', 'adressa', 'ebnerd'],
+        choices=['mind', 'adressa'],
         help='Dataset to evaluate on (default: mind)'
     )
     parser.add_argument(

@@ -8,7 +8,7 @@ from transformers import AutoTokenizer
 from datasets import _infer_dataset_from_path, _load_mapping
 
 class AdressaNewsDataset(Dataset):
-    """Load news articles for Adressa/EB-NeRD style datasets."""
+    """Load news articles for Adressa-style datasets."""
 
     def __init__(
         self,
@@ -95,7 +95,7 @@ class AdressaNewsDataset(Dataset):
         }
     
 class AdressaBehaviorsDataset(Dataset):
-    """Behaviors dataset used during evaluation for Adressa/EB-NeRD."""
+    """Behaviors dataset used during evaluation for Adressa."""
 
     def __init__(self, behaviors_path: str, cold_threshold: int = 0, num_clicked_news_a_user: int = 30) -> None:
         super().__init__()
@@ -144,7 +144,7 @@ class AdressaBehaviorsDataset(Dataset):
         return item
 
 class AdressaBaseDataset(Dataset):
-    """Training dataset for Adressa/EB-NeRD with negative sampling."""
+    """Training dataset for Adressa with negative sampling."""
 
     def __init__(self, behaviors_path: str, news_path: str, config: dict) -> None:
         super().__init__()

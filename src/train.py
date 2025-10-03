@@ -68,7 +68,6 @@ MODEL_REGISTRY = {
 # Project name mapping for wandb logging
 PROJECT_NAMES = {
     'mind': 'mind',
-    'ebnerd': 'ebnerd',
     'adressa': 'adressa',
 }
 
@@ -161,7 +160,7 @@ def train(model: nn.Module, config: dict, device: torch.device, model_type: str,
     model.train()
 
     # Load dataset based on dataset type
-    if dataset_type in ['ebnerd', 'adressa']:
+    if dataset_type == 'adressa':
         dataset = AdressaBaseDataset(
             f"{dataset_config['path']}/train/behaviors_parsed.tsv",    
             f"{dataset_config['path']}/train/news.tsv",
