@@ -1,26 +1,22 @@
-"""
-Evaluation script for news recommendation models.
-Performs retrieval evaluation and builds news/user vectors for validation/testing.
-"""
+"""Evaluation utilities and CLI for news recommendation models."""
 
+import argparse
 import os
-import yaml
+import sys
+
 import torch
 
 # Set tokenizer parallelism to avoid warnings in multiprocessing
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 import numpy as np
-from multiprocessing import Pool
-from utils import calculate_single_user_metric, latest_checkpoint, set_seeds, get_device
-import argparse
-import torch.nn.functional as F
-from collections import defaultdict
 
-from datasets import NewsDataset, BehaviorsDataset, UserDataset
-from adressa_datasets import AdressaNewsDataset, AdressaBehaviorsDataset, AdressaUserDataset
+from config import load_experiment_config
+from utils import calculate_single_user_metric, get_device, latest_checkpoint, set_seeds
+
+from datasets import NewsDataset, BehaviorsDataset
+from adressa_datasets import AdressaNewsDataset, AdressaBehaviorsDataset
 
 from model.LSNR import LSNR
 from model.NAMLBERT import NAMLBERT
@@ -34,6 +30,70 @@ MODEL_REGISTRY = {
     'lstur': LSTURBERT,
     'lsnr': LSNR,
 }
+
+
+def load_model_and_checkpoint(
+    model_type: str,
+    experiment_name: str,
+    dataset: str,
+    learning_rate: str | None = None,
+    checkpoint_dir: str | None = None,
+):
+    """Load a configured model along with its latest checkpoint."""
+    config = load_experiment_config(experiment_name, dataset)
+
+    set_seeds(config['global']['seed'])
+    device = get_device(config['global']['device'])
+
+    if model_type not in MODEL_REGISTRY:
+        raise ValueError(f"Invalid model: {model_type}. Available models: {list(MODEL_REGISTRY.keys())}")
+    model_class = MODEL_REGISTRY[model_type]
+    model = model_class(config['models'][model_type], config['datasets'][dataset], device)
+
+    if checkpoint_dir is not None:
+        resolved_ckpt_dir = checkpoint_dir
+    else:
+        lr = learning_rate if learning_rate is not None else config['training']['learning_rate']
+        cold_tr = config['training']['cold_threshold']
+        checkpoint_name = f"{experiment_name}_{model_type}_{dataset}_cold{cold_tr}_lr{lr}"
+        resolved_ckpt_dir = f"./checkpoints/{checkpoint_name}/"
+
+    print(f"🔍 Looking for checkpoints in: {resolved_ckpt_dir}", flush=True)
+    checkpoint_path = latest_checkpoint(resolved_ckpt_dir)
+    if checkpoint_path is None:
+        print(f"❌ No checkpoint file found in {resolved_ckpt_dir}!", flush=True)
+        print("💡 Available checkpoint directories:", flush=True)
+        checkpoints_base = "./checkpoints/"
+        if os.path.exists(checkpoints_base):
+            for item in os.listdir(checkpoints_base):
+                if os.path.isdir(os.path.join(checkpoints_base, item)):
+                    print(f"   📁 {item}", flush=True)
+        raise FileNotFoundError(
+            f"No checkpoint found for experiment {experiment_name} with dataset {dataset}"
+        )
+
+    print(f"✅ Loading checkpoint: {checkpoint_path}", flush=True)
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+    except Exception as exc:
+        if "weights_only" in str(exc) or "WeightsUnpickler" in str(exc):
+            print("⚠️  Retrying checkpoint load with weights_only=False (trusted source)", flush=True)
+            checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'), weights_only=False)
+        else:
+            raise
+
+    model.load_state_dict(checkpoint['model_state_dict'])
+    print(
+        "📊 Checkpoint info - Step: {step}, Epoch: {epoch}".format(
+            step=checkpoint.get('step', 'unknown'),
+            epoch=checkpoint.get('epoch', 'unknown'),
+        ),
+        flush=True,
+    )
+
+    model.to(device)
+    model.eval()
+    return model, device, config
 
 def run_evaluation(
     model,
@@ -50,11 +110,10 @@ def run_evaluation(
     Builds news vectors once for the requested split, then evaluates retrieval
     metrics for each requested cold threshold.
     """
-    # Resolve parameters from config when not provided
     dataset_type = dataset
     model_type = str(config['experiment']['model'])
     effective_batch_size = batch_size if batch_size is not None else int(config['training']['batch_size'])
-    num_workers = int(config['training']['num_workers']) if 'num_workers' in config['training'] else 4
+    num_workers = int(config['training'].get('num_workers', 4))
 
     # Build news vectors for the split once
     news2vector, news2category = build_news_vectors(
@@ -87,7 +146,7 @@ def run_evaluation(
             news2vector=news2vector,
             news2category=news2category,
             cold_threshold=ct,
-            dataset_type=device.type if dataset_type is None else dataset_type,
+            dataset_type=dataset_type,
             model_type=model_type,
             batch_size=effective_batch_size,
             num_workers=num_workers,
@@ -238,12 +297,12 @@ def eval_retrieval(
             torch.cuda.empty_cache()
     
 
-    # If no valid samples, return NaNs to avoid indexing errors
-    if num_metric_samples == 0:
-        return (np.nan, np.nan, np.nan, np.nan)
-
-    # Return averaged metrics and average user sparsity
+    # Compute averaged metrics and average user sparsity
     avg_user_sparsity = float(1.0 - (user_nonzero / user_total)) if user_total > 0 else float('nan')
+
+    if num_metric_samples == 0:
+        return (float('nan'), float('nan'), float('nan'), float('nan'), avg_user_sparsity)
+
     return (
         sum_auc / num_metric_samples,
         sum_mrr / num_metric_samples,
@@ -337,7 +396,150 @@ def behaviors_collate_fn(batch):
     return batch_out
 
 
+def _print_available_checkpoints() -> None:
+    print("📁 Available checkpoints:")
+    checkpoints_base = "./checkpoints/"
+    if not os.path.exists(checkpoints_base):
+        print("   ❌ No checkpoints directory found")
+        return
+
+    for item in sorted(os.listdir(checkpoints_base)):
+        item_path = os.path.join(checkpoints_base, item)
+        if not os.path.isdir(item_path):
+            continue
+        checkpoint_files = [f for f in os.listdir(item_path) if f.endswith('.pth')]
+        count = len(checkpoint_files)
+        plural = '' if count == 1 else 's'
+        print(f"   📂 {item} ({count} checkpoint{plural})")
+        for ckpt in sorted(checkpoint_files):
+            print(f"      🔹 {ckpt}")
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    return argparse.ArgumentParser(
+        description="Evaluate a trained news recommendation model - just specify the model class!",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python src/evaluate.py lsnr                    # Evaluate LSNR on MIND dataset
+  python src/evaluate.py nrms --dataset adressa  # Evaluate NRMS on Adressa dataset
+  python src/evaluate.py naml --split val        # Evaluate NAML on validation set
+  python src/evaluate.py lstur --cold-thresholds 0 1 2  # Evaluate LSTUR on multiple cold thresholds
+  python src/evaluate.py lsnr --batch-size 32    # Evaluate LSNR with custom batch size
+  python src/evaluate.py --list-checkpoints      # List all available checkpoints
+        """
+    )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_arg_parser()
+
+    parser.add_argument(
+        'model',
+        nargs='?',
+        choices=['lsnr', 'nrms', 'naml', 'lstur'],
+        help='Model class to evaluate (lsnr, nrms, naml, lstur)'
+    )
+    parser.add_argument(
+        '--dataset',
+        default='mind',
+        choices=['mind', 'adressa', 'ebnerd'],
+        help='Dataset to evaluate on (default: mind)'
+    )
+    parser.add_argument(
+        '--split',
+        default='test',
+        choices=['val', 'test'],
+        help='Split to evaluate on (default: test)'
+    )
+    parser.add_argument(
+        '--cold-thresholds',
+        nargs='*',
+        type=int,
+        default=None,
+        help='Cold thresholds to evaluate (default: [0, 1, 2, 3, 4, 5])'
+    )
+    parser.add_argument(
+        '--lr',
+        type=str,
+        default=None,
+        help='Learning rate to select checkpoint (e.g., 0.0001 or 1e-05)'
+    )
+    parser.add_argument(
+        '--checkpoint-dir',
+        default=None,
+        help='Explicit checkpoint directory path'
+    )
+    parser.add_argument(
+        '--list-checkpoints',
+        action='store_true',
+        help='List all available checkpoints and exit'
+    )
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=None,
+        help='Batch size for evaluation (default: use experiment config)'
+    )
+    parser.add_argument(
+        '--regularization',
+        type=str,
+        default=None,
+        help='Regularization to select checkpoint (e.g., baseline, low, high, very_high)'
+    )
+
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+
+    if args.list_checkpoints:
+        _print_available_checkpoints()
+        return 0
+
+    if args.model is None:
+        raise SystemExit("Model argument is required unless --list-checkpoints is used.")
+
+    if args.cold_thresholds is None:
+        args.cold_thresholds = [0, 1, 2, 3, 4, 5]
+
+    regularization = args.regularization or 'baseline'
+    experiment_name = f"{args.model}_{regularization}"
+
+    print(f"🚀 Evaluating {args.model.upper()} model on {args.dataset.upper()} dataset")
+    print(f"📁 Using experiment: {experiment_name}")
+    print(f"📊 Split: {args.split}")
+    if args.cold_thresholds:
+        print(f"❄️  Cold thresholds: {args.cold_thresholds}")
+    if args.checkpoint_dir:
+        print(f"💾 Checkpoint dir: {args.checkpoint_dir}")
+    print()
+
+    try:
+        model, device, config = load_model_and_checkpoint(
+            model_type=args.model,
+            experiment_name=experiment_name,
+            dataset=args.dataset,
+            learning_rate=args.lr,
+            checkpoint_dir=args.checkpoint_dir,
+        )
+
+        run_evaluation(
+            model=model,
+            device=device,
+            config=config,
+            dataset=args.dataset,
+            eval_split=args.split,
+            cold_thresholds=args.cold_thresholds,
+            batch_size=args.batch_size,
+        )
+        print("✅ Evaluation completed successfully!")
+        return 0
+    except Exception as exc:  # noqa: BLE001 - surface error to user
+        print(f"❌ Evaluation failed: {exc}")
+        return 1
+
+
 if __name__ == "__main__":
-    # This module is intended to be imported by the CLI in main.py
-    # and should not be executed directly.
-    pass
+    sys.exit(main())

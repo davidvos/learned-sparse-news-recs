@@ -1,67 +1,92 @@
-import yaml
+from pathlib import Path
+
 import pandas as pd
-from ast import literal_eval
 import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
+
+def _infer_dataset_from_path(file_path: str) -> str | None:
+    """Infer dataset name from a path that contains a data/<dataset>/ segment."""
+    parts = Path(file_path).parts
+    if "data" in parts:
+        idx = parts.index("data")
+        if idx + 1 < len(parts):
+            return parts[idx + 1]
+    return None
+
+
+def _load_mapping(mapping_path: Path) -> dict[str, int]:
+    """Load mapping files like user2int.tsv or category2int.tsv when present."""
+    if not mapping_path.exists():
+        return {}
+    mapping_df = pd.read_table(mapping_path, header=None, names=["key", "value"])
+    return {str(row.key): int(row.value) for row in mapping_df.itertuples(index=False)}
+
 class NewsDataset(Dataset):
-    """
-    Load news for evaluation.
-    """
-    def __init__(self, news_path, pretrained_model_name, model_name, dataset_type=None, num_words_title=20, num_words_abstract=50):
-        """
-        Args:
-            news_path: path to news file
-            pretrained_model_name: name of the pretrained model
-            model_name: name of the model
-            dataset_type: type of dataset (e.g., 'mind', 'ebnerd')
-            num_words_title: maximum number of words in title
-            num_words_abstract: maximum number of words in abstract
-        """
-        super(NewsDataset, self).__init__()
+    """Load news articles for evaluation splits."""
+
+    def __init__(
+        self,
+        news_path: str,
+        pretrained_model_name: str,
+        model_name: str | None = None,
+        dataset_type: str | None = None,
+        num_words_title: int = 20,
+        num_words_abstract: int = 50,
+    ) -> None:
+        # Model name is accepted for backwards compatibility but unused now
+        super().__init__()
 
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-        
-        # Extract dataset type from news_path if not provided
-        if dataset_type is None:
-            # Extract from path like "data/mind/val/news.tsv" -> "mind"
-            path_parts = news_path.split('/')
-            if 'data' in path_parts:
-                data_idx = path_parts.index('data')
-                if data_idx + 1 < len(path_parts):
-                    dataset_type = path_parts[data_idx + 1]
-        
-        self.dataset = dataset_type
+        inferred_dataset = dataset_type or _infer_dataset_from_path(news_path)
+        if inferred_dataset is None:
+            raise ValueError(f"Unable to infer dataset from path: {news_path}")
+        self.dataset = inferred_dataset
         self.num_words_title = num_words_title
         self.num_words_abstract = num_words_abstract
 
+        news_path_obj = Path(news_path)
+        dataset_root = news_path_obj.parent.parent if news_path_obj.parent.name in {"train", "val", "test"} else news_path_obj.parent
+        category_mapping = _load_mapping(dataset_root / "train" / "category2int.tsv")
+
         self.news = pd.read_table(
             news_path,
-            names=['id', 'category', 'subcategory', 'title', 'abstract', 'url', 'title_entities', 'abstract_entities'],
-            usecols=['id', 'category', 'subcategory', 'title', 'abstract'],
+            names=[
+                "id",
+                "category",
+                "subcategory",
+                "title",
+                "abstract",
+                "url",
+                "title_entities",
+                "abstract_entities",
+            ],
+            usecols=["id", "category", "subcategory", "title", "abstract"],
         )
-     
-        self.news['title'] = self.news['title'].fillna('')
-        self.news['abstract'] = self.news['abstract'].fillna('')
 
-        category2int = dict(pd.read_table(f'data/{self.dataset}/train/category2int.tsv').values.tolist())
-        self.news['category'] = self.news['category'].map(category2int)
-        self.news['subcategory'] = self.news['subcategory'].map(category2int)
-        
-        self.news['category'] = self.news['category'].fillna(0)
-        self.news['subcategory'] = self.news['subcategory'].fillna(0)
+        self.news["title"] = self.news["title"].fillna("")
+        self.news["abstract"] = self.news["abstract"].fillna("")
 
-        # Store only raw fields for tokenization in __getitem__
+        if category_mapping:
+            self.news["category"] = self.news["category"].map(category_mapping)
+            self.news["subcategory"] = self.news["subcategory"].map(category_mapping)
+
+        self.news["category"] = self.news["category"].fillna(0)
+        self.news["subcategory"] = self.news["subcategory"].fillna(0)
+
+        # Prepare cached representation for __getitem__ to avoid repeated DataFrame access
         self.news_parsed = []
-        for index, row in enumerate(self.news.itertuples()):
-            text = row.title + ' ' + row.abstract
-            self.news_parsed.append({
-                'id': row.id,
-                'text': text,
-                'category': row.category,
-                'subcategory': row.subcategory
-            })
+        for row in self.news.itertuples():
+            text = f"{row.title} {row.abstract}".strip()
+            self.news_parsed.append(
+                {
+                    "id": row.id,
+                    "text": text,
+                    "category": int(row.category),
+                    "subcategory": int(row.subcategory),
+                }
+            )
 
     def __len__(self):
         return len(self.news_parsed)
@@ -143,94 +168,72 @@ class BehaviorsDataset(Dataset):
         }
         return item
 
-class UserDataset(Dataset):
-    """
-    Load users for evaluation, duplicated rows will be dropped
-    """
-    def __init__(self, behaviors_path):
-        """
-        Args:
-            behaviors_path: path to behaviors file
-        """
-        super(UserDataset, self).__init__()
-        
-        self.behaviors = pd.read_table(behaviors_path,
-                                       header=None,
-                                       usecols=[0, 1, 3],
-                                       names=['id', 'user', 'clicked_news'])
-        
-        self.behaviors['clicked_news'] = self.behaviors['clicked_news'].fillna(' ')
-
-        user2int = dict(pd.read_table(f'data/{self.dataset}/train/user2int.tsv').values.tolist())
-        
-        self.behaviors['user'] = self.behaviors['user'].map(user2int)
-
-    def __len__(self):
-        return len(self.behaviors)
-
-    def __getitem__(self, idx):
-        row = self.behaviors.iloc[idx]
-
-        item = {
-            "id": row.user,
-            "clicked_news": row.clicked_news.split()[-self.num_clicked_news_a_user:]
-        }
-        item['clicked_news_length'] = len(item["clicked_news"])
-        repeated_times = self.num_clicked_news_a_user - len(item["clicked_news"])
-
-        item["clicked_news_mask"] = [0] * repeated_times + [1] * len(item["clicked_news"])
-        item["clicked_news"] = ['PADDED_NEWS'] * repeated_times + item["clicked_news"]
-
-        return item
-    
 class BaseDataset(Dataset):
-    def __init__(self, behaviors_path, news_path, config):
-        super(BaseDataset, self).__init__()
+    """Dataset used during training for MIND-style datasets."""
+
+    def __init__(self, behaviors_path: str, news_path: str, config: dict) -> None:
+        super().__init__()
 
         self.config = config
-        self.dataset = config['_dataset']  # Get dataset from config
-        self.tokenizer = AutoTokenizer.from_pretrained(config['datasets'][self.dataset]['pretrained_model_name'])
+        self.dataset = config["_dataset"]
+        dataset_cfg = config["datasets"][self.dataset]
+        self.tokenizer = AutoTokenizer.from_pretrained(dataset_cfg["pretrained_model_name"])
 
-        self.behaviors_parsed = pd.read_table(behaviors_path)
-        self.behaviors_parsed['clicked_news'] = self.behaviors_parsed['clicked_news'].fillna(' ')
+        behaviors_path_obj = Path(behaviors_path)
+        dataset_root = behaviors_path_obj.parent.parent if behaviors_path_obj.parent.name in {"train", "val", "test"} else behaviors_path_obj.parent
 
-        user2int = dict(pd.read_table(f'data/{self.dataset}/train/user2int.tsv').values.tolist())
-        self.behaviors_parsed['user'] = self.behaviors_parsed['user'].map(user2int)
-        self.behaviors_parsed['user'] = self.behaviors_parsed['user'].fillna(0)
+        user_mapping = _load_mapping(dataset_root / "train" / "user2int.tsv")
 
+        self.behaviors_parsed = pd.read_table(behaviors_path, sep="\t")
+        self.behaviors_parsed["clicked_news"] = self.behaviors_parsed["clicked_news"].fillna(" ")
+        if user_mapping:
+            self.behaviors_parsed["user"] = (
+                self.behaviors_parsed["user"].astype(str).map(user_mapping).fillna(0).astype(int)
+            )
+        else:
+            unique_users = self.behaviors_parsed["user"].astype(str).unique()
+            fallback_mapping = {user: idx for idx, user in enumerate(unique_users)}
+            self.behaviors_parsed["user"] = self.behaviors_parsed["user"].astype(str).map(fallback_mapping)
+
+        category_mapping = _load_mapping(dataset_root / "train" / "category2int.tsv")
         self.news_parsed = pd.read_table(
             news_path,
-            names=['id', 'category', 'subcategory', 'title', 'abstract', 'url', 'title_entities', 'abstract_entities'],
-            usecols=['id', 'category', 'subcategory', 'title', 'abstract'],
+            names=[
+                "id",
+                "category",
+                "subcategory",
+                "title",
+                "abstract",
+                "url",
+                "title_entities",
+                "abstract_entities",
+            ],
+            usecols=["id", "category", "subcategory", "title", "abstract"],
         )
 
-        self.news_parsed['title'] = self.news_parsed['title'].fillna('')
-        self.news_parsed['abstract'] = self.news_parsed['abstract'].fillna('')
+        self.news_parsed["title"] = self.news_parsed["title"].fillna("")
+        self.news_parsed["abstract"] = self.news_parsed["abstract"].fillna("")
 
-        category2int = dict(pd.read_table(f'data/{self.dataset}/train/category2int.tsv').values.tolist())
-        self.news_parsed['category'] = self.news_parsed['category'].map(category2int)
-        self.news_parsed['subcategory'] = self.news_parsed['subcategory'].map(category2int)
-        self.news_parsed['category'] = self.news_parsed['category'].fillna(0)
-        self.news_parsed['subcategory'] = self.news_parsed['subcategory'].fillna(0)
+        if category_mapping:
+            self.news_parsed["category"] = self.news_parsed["category"].map(category_mapping)
+            self.news_parsed["subcategory"] = self.news_parsed["subcategory"].map(category_mapping)
 
-        # Store only raw fields for tokenization in __getitem__
-        self.news2raw = {}
-        for index, row in enumerate(self.news_parsed.itertuples()):
-            text = row.title + ' ' + row.abstract
+        self.news_parsed["category"] = self.news_parsed["category"].fillna(0)
+        self.news_parsed["subcategory"] = self.news_parsed["subcategory"].fillna(0)
+
+        # Cache news features so __getitem__ can quickly assemble tensors
+        self.news2raw: dict[str, dict[str, object]] = {}
+        for row in self.news_parsed.itertuples():
+            text = f"{row.title} {row.abstract}".strip()
             self.news2raw[str(row.id)] = {
-                'text': text,
-                'category': row.category,
-                'subcategory': row.subcategory
+                "text": text,
+                "category": int(row.category),
+                "subcategory": int(row.subcategory),
             }
 
-        # Add explicit padding entry for consistency
-        self.padding = {
-            'text': '',
-            'category': 0,
-            'subcategory': 0
-        }
-        self.news2raw['PADDED_NEWS'] = self.padding
-        self.padding_tokenized = None  # Will be set on first use
+        self.padding = {"text": "", "category": 0, "subcategory": 0}
+        self.news2raw["PADDED_NEWS"] = self.padding
+        self.padding_tokenized = None  # Lazy init to avoid extra tokenization work
 
     def __len__(self):
         return len(self.behaviors_parsed)
@@ -239,39 +242,30 @@ class BaseDataset(Dataset):
         item = {}
         row = self.behaviors_parsed.iloc[idx]
 
-        def get_tokenized(news_id):
+        def get_tokenized(news_id: str) -> dict[str, torch.Tensor]:
             raw = self.news2raw.get(news_id, self.padding)
             tokenized = self.tokenizer(
-                raw['text'],
-                padding='max_length',
+                raw["text"],
+                padding="max_length",
                 truncation=True,
-                max_length=self.config['datasets'][self.dataset]['num_words_title'] + self.config['datasets'][self.dataset]['num_words_abstract'],
-                return_tensors='pt'
+                max_length=dataset_cfg["num_words_title"] + dataset_cfg["num_words_abstract"],
+                return_tensors="pt",
             )
-            if (self.config['experiment']['model'] == 'naml' or self.config['experiment']['model'] == 'lstur') and False:  # No OOD datasets available
-                return {
-                    'input_ids': tokenized['input_ids'],
-                    'attention_mask': tokenized['attention_mask'],
-                    'category': torch.tensor(0).long(),
-                    'subcategory': torch.tensor(0).long(),
-                    'text': raw['text']
-                }
-            else:   
-                return {
-                    'input_ids': tokenized['input_ids'],
-                    'attention_mask': tokenized['attention_mask'],
-                    'category': torch.tensor(raw['category']).long(),
-                    'subcategory': torch.tensor(raw['subcategory']).long(),
-                    'text': raw['text']
-                }
+            return {
+                "input_ids": tokenized["input_ids"],
+                "attention_mask": tokenized["attention_mask"],
+                "category": torch.tensor(raw["category"]).long(),
+                "subcategory": torch.tensor(raw["subcategory"]).long(),
+                "text": raw["text"],
+            }
 
         # Prepare padding tokenized if not already
         if self.padding_tokenized is None:
             self.padding_tokenized = get_tokenized('PADDED_NEWS')  # Use 'PADDED_NEWS' consistently
 
         # Get candidate news and clicked labels
-        candidate_news_ids = row.candidate_news.split()
-        clicked_labels = [int(x) for x in row.clicked.split()]
+        candidate_news_ids = str(row.candidate_news).split()
+        clicked_labels = [int(x) for x in str(row.clicked).split()]
         
         # No shuffling, preserve original order
         item["candidate_news"] = [
@@ -279,16 +273,17 @@ class BaseDataset(Dataset):
         ]
         item["clicked"] = torch.tensor(clicked_labels).long()
 
-        clicked_news_ids = row.clicked_news.split()[-self.config['datasets'][self.dataset]['num_clicked_news_a_user']:]
+        history_limit = dataset_cfg["num_clicked_news_a_user"]
+        clicked_news_ids = str(row.clicked_news).split()[-history_limit:]
         item["clicked_news"] = [
             get_tokenized(x) for x in clicked_news_ids
         ]
 
         item["clicked_news_length"] = len(item["clicked_news"])
-        repeated_times = self.config['datasets'][self.dataset]['num_clicked_news_a_user'] - len(item["clicked_news"])
+        repeated_times = history_limit - len(item["clicked_news"])
         assert repeated_times >= 0
         item["clicked_news_mask"] = [0] * repeated_times + [1] * len(item["clicked_news"])
         item["clicked_news"] = [self.padding_tokenized] * repeated_times + item["clicked_news"]
         item["user"] = torch.tensor(row.user).long()
-        
+
         return item

@@ -1,11 +1,10 @@
-import numpy as np
-from sklearn.metrics import roc_auc_score
 import os
+import random
+
+import numpy as np
 import torch
 import wandb
-import argparse
-import random
-import math
+from sklearn.metrics import roc_auc_score
 
 
 class LambdaScheduler:

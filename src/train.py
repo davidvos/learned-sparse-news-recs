@@ -6,7 +6,6 @@ import argparse
 import gc
 import os
 import sys
-from typing import Any, Dict
 
 # Set tokenizer parallelism to avoid warnings in multiprocessing
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -17,7 +16,6 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import wandb
 from tqdm import tqdm
-from torch.utils.data import default_collate
 
 # Local imports
 from model.NRMSBERT import NRMSBERT

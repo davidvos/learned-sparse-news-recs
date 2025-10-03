@@ -1,83 +1,163 @@
-# LSNR: Learned Sparse News Recommendations
+# Learned Sparse News Recommendations (LSNR)
 
-This repository contains the supporting material for the paper 'Reliable and Controllable Learned Sparse News Recommendations for Short-History Users'.
+Repository accompanying the SIGIR paper **“Reliable and Controllable Learned Sparse News Recommendations for Short-History Users.”**
 
-Modern news recommenders based on dense representations face a \emph{reliability} problem: they systematically provide a lower quality of service to the large segment of users with short interaction histories. They also face a \emph{controllability} problem: dense models sacrifice the controllable balance between performance and efficiency inherent to earlier sparse methods. To address these challenges, we propose learned sparse news recommendations (LSNR). LSNR features a novel user encoder that learns to generate sparse, bag-of-words-style representations of user interests, allowing explicit term matching as a robust signal for recommendation. LSNR's sparsity regularization provides a direct mechanism to control the performance-sparsity trade-off. Experiments on the MIND and Adressa datasets show that LSNR significantly outperforms state-of-the-art dense models for short-history users while remaining competitive for users with long histories. We show that learned sparse models can promote both reliability and practical control over news recommendation systems.
+LSNR learns sparse, bag-of-words-style user profiles that restore reliable retrieval quality for short-history users while retaining an explicit performance–efficiency trade-off. This codebase reproduces the paper’s experiments across MIND, Adressa/EB-NeRD, and internal ablations, and provides utilities to adapt the approach to new settings. Unless otherwise stated, examples assume the 10-week Adressa setup described below.
 
-## Get Started
+---
 
-This project uses Weights and Biases logging. To use this feature, you need to create a Weights and Biases account and login. Alternatively, you can remove the corresponding code in the ```src/train.py``` file.
+## Contents
 
-1. Clone the repository by running the following command:
+- `experiments/` – YAML experiment definitions used in the paper
+- `src/` – training, evaluation, datasets, and model implementations
+- `reports/`, `figures/`, `inspect_lsnr_news.py` – analysis notebooks and scripts
+
+---
+
+## 1. Environment Setup
+
+The project targets Python ≥3.10. We recommend creating a virtual environment:
+
 ```bash
-git clone https://github.com/davidvos/learned-sparse-news-recs.git
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-2. Navigate to the repository by running the following command:
+Weights & Biases is used for experiment logging. Either log in with `wandb login` or disable logging by setting `logging.wandb.enabled: false` in the experiment YAML.
+
+Optional: Instead of `pip`, you can use `uv sync` with the provided `pyproject.toml`/`uv.lock` files.
+
+---
+
+## 2. Data Preparation
+
+Create the canonical directory layout before unpacking datasets:
+
 ```bash
-cd learned-sparse-news-recs
+mkdir -p data/mind/{train,val,test}
+mkdir -p data/ebnerd/{train,val,test}
+mkdir -p data/adressa/{train,val,test}
 ```
 
-3. Download the MIND (small) and EBNeRD (small) datasets from the following links:
-   * MIND
-     * [Train](https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_train.zip)
-     * [Validation](https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_dev.zip)
-   * [EBNeRD](https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_small.zip)
+### 2.1 MIND
 
 ```bash
 wget https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_train.zip
 wget https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_dev.zip
-wget https://ebnerd-dataset.s3.eu-west-1.amazonaws.com/ebnerd_small.zip
-```
-  
-4. Unzip the downloaded files and put the unzipped files in the folders of the dataset that you want to pre-process and use. 
-
-First create a data folder:
-```bash
-mkdir data
-mkdir data/mind data/mind/train data/mind/val data/mind/test data/ebnerd data/ebnerd/test
-```
-
-For MIND: 
-```bash
 unzip MINDsmall_train.zip -d data/mind/train
-unzip MINDsmall_dev.zip -d data/mind/val
-unzip MINDsmall_dev.zip -d data/mind/test
-```
-For EBNeRD:
-```bash
-unzip ebnerd_small.zip -d data/ebnerd
-mv data/ebnerd/validation data/ebnerd/val
-cp -r data/ebnerd/val/* data/ebnerd/test
+unzip MINDsmall_dev.zip   -d data/mind/val
+unzip MINDsmall_dev.zip   -d data/mind/test
 ```
 
+### 2.3 Adressa 10-week (default paper setup)
 
-6. Install the required packages by running the following command:
+Download the 10-week Adressa release and unpack it under `data/adressa/raw`:
+
 ```bash
-pip install -r requirements.txt
+wget https://reclab.idi.ntnu.no/dataset/three_month.tar.gz
+mkdir -p data/adressa/raw
+tar -xzf three_month.tar.gz -C data/adressa/raw --strip-components=1
 ```
 
-7. Pre-process the MIND and EBNeRD datasets by running the following commands:
+After extraction, ensure `data/adressa/raw` contains `news.tsv`, `behaviors.tsv`, and the associated metadata files. The preprocessing script will derive the train/val/test splits and mapping files from this location.
+
+---
+
+## 3. Preprocessing Pipelines
+
+Preprocessing scripts materialize the tokenised splits, mapping files, and cold-start variants used during training/evaluation. They read defaults from `config.yaml` but accept overrides via environment variables or CLI arguments.
+
 ```bash
+# MIND
 python src/data_preprocess_mind.py
+
+# Adressa / EB-NeRD
+python src/data_preprocess_adressa.py --dataset ebnerd
+python src/data_preprocess_adressa.py --dataset adressa
 ```
+
+Outputs are written to `data/<dataset>/{train,val,test}/`, including:
+
+- `behaviors_parsed.tsv` (training) and `behaviors_parsed_cold*.tsv` (evaluation cold-threshold slices)
+- `news.tsv` per split limited to referenced articles
+- `user2int.tsv`, `category2int.tsv` shared across splits
+
+---
+
+## 4. Configuration & Experiment Management
+
+Experiments are defined in `experiments/*.yaml` and may inherit from `experiments/base.yaml` via the `_base_` key. The loader (`src/config.py`) resolves inheritance, performs type conversions, and exposes:
+
+- `experiment` metadata (name, model, description)
+- `datasets` block with per-dataset hyperparameters
+- `models` block with model-specific settings (including sparsity regularisation for LSNR)
+- `training` block controlling optimisation, evaluation cadence, and cold-threshold selection
+
+To create a new experiment, copy an existing YAML file and adjust the relevant sections. Any YAML string using scientific notation (e.g. `1e-4`) is automatically cast to floats.
+
+---
+
+## 5. Training
+
+Training is driven by `src/train.py` and consumes experiment names:
+
 ```bash
-python src/data_preprocess_ebnerd.py
-```
-These commands will pre-process the data for the regular and user cold-start settings.
+# Adressa default run (recommended starting point)
+python src/train.py lsnr_baseline adressa
 
-1. For the ```--dataset``` argument you can choose between 'mind' and 'ebnerd'. For the ```--model``` argument you can choose between 'lsnr', 'nrms', 'naml' and 'lstur'. Train a model by running the following command:
+# MIND variant
+python src/train.py lsnr_baseline mind
+```
+
+Key options:
+
+- Positional `experiment`: name of the YAML file in `experiments/`
+- Optional positional `dataset`: defaults to `adressa`
+- Logging: checkpoints saved under `checkpoints/<experiment>_<model>_<dataset>_cold<k>_lr<lr>/`
+
+LSNR models expose a quadratic lambda warm-up; sparsity settings live in the experiment config under `models.lsnr`.
+
+---
+
+## 6. Evaluation & Analysis
+
+### 6.1 CLI entrypoint
+
+`src/evaluate.py` offers a consolidated interface that loads checkpoints and runs retrieval metrics over multiple cold thresholds:
+
 ```bash
-python src/train.py --dataset mind --model lsnr --batch_size 32 --eval_every 1000 --num_workers 4 --num_epochs 10 --learning_rate 0.00001
+# Evaluate the baseline LSNR model on Adressa validation cold thresholds 0-5
+python src/evaluate.py lsnr --dataset adressa --split val
+
+# Evaluate NRMS on MIND with a custom checkpoint directory
+python src/evaluate.py nrms --dataset mind --checkpoint-dir checkpoints/my_nrms_run
 ```
 
-1. Evaluate the model by running the following command:
-```bash
-# Evaluate on validation set (default)
-python src/evaluate.py --dataset mind --model lsnr --batch_size 32 --num_workers 4 --learning_rate 0.00001
+Useful flags:
 
-# Evaluate on test set
-python src/evaluate.py --dataset mind --model lsnr --batch_size 32 --num_workers 4 --learning_rate 0.00001 --eval_split test
-```
+- `--cold-thresholds`: space-separated list (default `[0, 1, 2, 3, 4, 5]`)
+- `--lr`: select checkpoints trained with a specific learning rate
+- `--batch-size`: override evaluation batch size
+- `--list-checkpoints`: enumerate available checkpoint folders without running evaluation
 
-The evaluation script now performs retrieval on all candidate news from the specified eval/test set, rather than just using the candidates for each specific user behavior. This provides a more comprehensive retrieval evaluation where each user's preferences are matched against the entire candidate pool from all users in the dataset.
+
+## 7. Extending to New Datasets
+
+To adapt LSNR to a new corpus:
+
+1. Implement a dataset preprocessor producing `news.tsv`, `behaviors.tsv`, and derived mapping files.
+2. Add a dataset configuration entry in `experiments/base.yaml` specifying tokenisation settings (`pretrained_model_name`, word limits, history length).
+3. Update the experiment YAML with the new dataset key and any model overrides.
+4. Reuse `datasets.BaseDataset` (MIND-style) or derive a new class following the Adressa loaders if schema differs.
+
+---
+
+## 8. Checkpoints & Logging
+
+- Checkpoints retain model/optimizer state and the evaluation step. Only the most recent checkpoint is kept per directory.
+- WandB logs include training loss, regularisation diagnostics, retrieval metrics, and lambda scheduler values when applicable.
+- `utils.save_checkpoint` writes `early_stop_value = -val_auc`; early stopping monitors validation AUC.
+
+---
