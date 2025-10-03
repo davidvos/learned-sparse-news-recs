@@ -51,7 +51,7 @@ unzip MINDsmall_dev.zip   -d data/mind/val
 unzip MINDsmall_dev.zip   -d data/mind/test
 ```
 
-### 2.3 Adressa 10-week (default paper setup)
+### 2.3 Adressa 10-week
 
 Download the 10-week Adressa release and unpack it under `data/adressa/raw`:
 
@@ -140,8 +140,6 @@ Useful flags:
 - `--cold-thresholds`: space-separated list (default `[0, 1, 2, 3, 4, 5]`)
 - `--lr`: select checkpoints trained with a specific learning rate
 - `--batch-size`: override evaluation batch size
-- `--list-checkpoints`: enumerate available checkpoint folders without running evaluation
-
 
 ## 7. Extending to New Datasets
 
