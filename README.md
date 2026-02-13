@@ -25,7 +25,7 @@ To address these bottlenecks, we introduce learned sparse news recommendations (
 ## 🚀 Getting Started
 
 ### 1. Environment Setup
-The codebase requires Python 3.10+ and uses `uv` for high-performance dependency management.
+The codebase requires Python 3.10+ and uses `uv` for dependency management.
 
 ```bash
 # Install dependencies
@@ -40,8 +40,8 @@ Logging is integrated with [Weights & Biases](https://wandb.ai/). Ensure you are
 uv run wandb login
 ```
 
-### 2. Data Acquisition & Preprocessing
-LSNR supports the **MIND** (Microsoft News Dataset) and **EBNeRD** datasets.
+### 2. Data preprocessing
+LSNR supports the **MIND** and **EBNeRD** datasets.
 
 #### MIND Setup
 ```bash
@@ -63,7 +63,7 @@ uv run python src/data/preprocess_mind.py
 # 1. Create the directory structure
 mkdir -p data/ebnerd/{train,validation}
 
-# 2. Place the raw Parquet files (from RecSys Challenge 2024)
+# 2. Place the raw Parquet files
 # - data/ebnerd/articles.parquet
 # - data/ebnerd/train/behaviors.parquet
 # - data/ebnerd/train/history.parquet
