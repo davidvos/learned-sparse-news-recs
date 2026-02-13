@@ -290,7 +290,7 @@ class LSTURBERT(BaseModel):
         self.user_encoder = self._UserEncoder(self.model_config, self.plm)
         self.click_predictor = DotProductClickPredictor()
         
-        num_users = dataset_config.get('num_users', model_config.get('num_users', 1000000))
+        num_users = dataset_config.get('num_users', 1000000)
         self.user_embedding = nn.Embedding(num_users + 1, self.plm.config.hidden_size, padding_idx=0)
 
     def forward(self, candidate_news, clicked_news, clicked_news_mask, user):

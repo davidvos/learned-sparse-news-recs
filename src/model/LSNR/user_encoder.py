@@ -7,7 +7,7 @@ class UserEncoder(nn.Module):
     """
     Encodes user history using DENSE news vectors and outputs a SPARSE user vector.
     """
-    def __init__(self, config, dataset_config, plm, device, tied_projection_layer=None):
+    def __init__(self, config, dataset_config, plm, device):
         super().__init__()
         self.device = device
         self.hidden_size = plm.config.hidden_size
@@ -22,14 +22,9 @@ class UserEncoder(nn.Module):
         self.dropout = nn.Dropout(self.dropout_prob)
         self.layer_norm = nn.LayerNorm(self.hidden_size)
         
-        self.use_asymmetric_projection = config.get('use_asymmetric_projection', False)
-        if self.use_asymmetric_projection:
-            self.projection = nn.Linear(self.hidden_size, self.sparse_dim, bias=False)
-            self._init_projection_from_mlm(plm)
-        elif tied_projection_layer is not None:
-            self.projection = tied_projection_layer
-        else:
-            self.projection = nn.Linear(self.hidden_size, self.sparse_dim, bias=False)
+        # Always use asymmetric projection (independent from NewsEncoder)
+        self.projection = nn.Linear(self.hidden_size, self.sparse_dim, bias=False)
+        self._init_projection_from_mlm(plm)
     
     def _init_projection_from_mlm(self, plm):
         if self.sparse_dim == plm.config.vocab_size:

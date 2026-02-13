@@ -44,6 +44,7 @@ datasets:
     pad_candidate_news: true
     num_categories: 17
     num_subcategories: 264
+    num_users: 595706
 
   ebnerd:
     path: "./data/ebnerd"
@@ -67,12 +68,10 @@ models:
     num_attention_heads: 16
     query_vector_dim: 200
     dropout_probability: 0.2
-    lambda_n: 0.01  # For candidate news
-    lambda_history: 0.001  # For history news (lower = more expressive history)
-    lambda_scheduler_steps: 0
+    lambda_n: 0.005  # For candidate news
+    lambda_history: 0.0005  # For history news
     use_history_length_scaling: true
     freeze_bert_layers: 9
-    use_asymmetric_projection: true  # When true, UserEncoder uses separate projection vs NewsEncoder
 
   # STAR: Sparse Text-based Attentive Ranker (bi-encoder with text concatenation)
   star:
@@ -83,7 +82,6 @@ models:
     lambda_scheduler_warmup: true
     freeze_bert_layers: 9
     max_user_tokens: 512           # Fill recent titles until this token limit
-    gradient_checkpointing: true
 
   # Neural Baselines
   nrms:
@@ -114,14 +112,12 @@ models:
     num_filters: 300
     window_size: 3
     category_embedding_dim: 100
-    num_users: 595706
     freeze_bert_layers: 9
 
   npa:
     model: "npa"
     negative_sampling_ratio: 4
     dropout_probability: 0.2
-    num_users: 595706
     freeze_bert_layers: 9
 
 

@@ -33,8 +33,7 @@ class LSNR(BaseModel):
             model_config, 
             dataset_config, 
             self.plm, 
-            device,
-            tied_projection_layer=self.news_encoder.projection
+            device
         )
         
         # Click predictor (dot product) - BM25 saturation applied symmetrically here
@@ -53,7 +52,7 @@ class LSNR(BaseModel):
         from utils import LambdaScheduler
         self.lambda_scheduler = LambdaScheduler(
             target_lambda_n=self.target_lambda_n,
-            warmup_steps=int(model_config.get('lambda_scheduler_steps', 50000)),
+            warmup_steps=0,
             enable_warmup=False # Always disabled for LSNR
         )
         
