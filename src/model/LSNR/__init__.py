@@ -28,10 +28,7 @@ class LSNR(BaseModel):
 
 
 
-        # News and user encoders
-        # News and user encoders
         self.news_encoder = NewsEncoder(model_config, dataset_config, self.plm, device)
-        # Pass the projection layer from NewsEncoder to UserEncoder for weight tying
         self.user_encoder = UserEncoder(
             model_config, 
             dataset_config, 
@@ -57,11 +54,9 @@ class LSNR(BaseModel):
         self.lambda_scheduler = LambdaScheduler(
             target_lambda_n=self.target_lambda_n,
             warmup_steps=int(model_config.get('lambda_scheduler_steps', 50000)),
-            enable_warmup=bool(model_config.get('lambda_scheduler_warmup', True))
+            enable_warmup=False # Always disabled for LSNR
         )
         
-        # Learnable temperature for click prediction scaling
-        # Applied consistently in both training (forward) and evaluation (get_prediction)
         self.temperature = nn.Parameter(torch.ones(1) * 1.0)
 
     def _calculate_flops_regularizer(self, vectors: torch.Tensor) -> torch.Tensor:
@@ -95,36 +90,23 @@ class LSNR(BaseModel):
         Forward pass through the LSNR model.
         """
         num_candidates = len(candidate_news)
+        num_clicked = len(clicked_news)
         
-        # --- 1. Process Candidate News ---
-        # Concatenate into single batch
         batched_candidate = {
             'input_ids': torch.cat([news['input_ids'] for news in candidate_news], dim=0),
             'attention_mask': torch.cat([news['attention_mask'] for news in candidate_news], dim=0),
         }
-        
         batch_size = batched_candidate['input_ids'].shape[0] // num_candidates
 
-        # Encode candidates -> Get Tuple (Sparse, Dense)
         sparse_cand_batched, _ = self.news_encoder(batched_candidate)
-        
-        # Reshape Sparse Candidates for Ranking [batch, num_candidates, vocab]
         sparse_candidate_vecs = sparse_cand_batched.view(num_candidates, batch_size, -1).transpose(0, 1)
         
-        # --- 2. Process User History (Clicked News) ---
-        num_clicked = len(clicked_news)
         batched_clicked = {
             'input_ids': torch.cat([news['input_ids'] for news in clicked_news], dim=0),
             'attention_mask': torch.cat([news['attention_mask'] for news in clicked_news], dim=0),
         }
-        
-        # Encode History -> Get Tuple (Sparse, Dense)
-        # We now compute SPARSE vectors for history items to regularize them
         sparse_clicked_batched, dense_clicked_batched = self.news_encoder(batched_clicked, return_sparse=True)
-        
-        # Reshape Dense History [batch, num_clicked, hidden_size]
         dense_clicked_vecs = dense_clicked_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
-        # Reshape Sparse History [batch, num_clicked, vocab]
         sparse_clicked_vecs = sparse_clicked_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
 
         # --- 3. Prepare Mask for History ---
@@ -143,48 +125,20 @@ class LSNR(BaseModel):
         if mask_bt.dim() == 1:
             mask_bt = mask_bt.unsqueeze(0)
             
-        # Expand mask for multiplication: [batch, num_clicked, 1]
+        # Apply mask and encode user
         expanded_mask = mask_bt.unsqueeze(-1)
-        
-        # Apply mask to DENSE vectors (Zero out padded clicks)
         dense_clicked_vecs = dense_clicked_vecs * expanded_mask
-
-        # --- 4. User Encoding ---
-        # If use_sparse_aggregation is True, pass both dense and sparse vectors
-        if getattr(self.user_encoder, 'use_sparse_aggregation', False):
-            # Apply mask to sparse vectors before aggregation (for max pooling safety)
-            masked_sparse_clicked = sparse_clicked_vecs * expanded_mask
-            user_vec = self.user_encoder(dense_clicked_vecs, masked_sparse_clicked, mask=mask_bt)
-        else:
-            # Traditional dense aggregation
-            user_vec = self.user_encoder(dense_clicked_vecs, mask=mask_bt)
+        masked_sparse_clicked = sparse_clicked_vecs * expanded_mask
+        user_vec = self.user_encoder(dense_clicked_vecs, masked_sparse_clicked, mask=mask_bt)
         
-        # --- 5. Regularization & Prediction ---
-        # Get current lambda values
         current_lambda_n = self.lambda_scheduler.get_lambda_values()
-        
-        # Prepare masked history for regularization
         masked_sparse_history = sparse_clicked_vecs * expanded_mask
         
-        # --- Regularization Scaling based on History Length ---
         if self.use_history_length_scaling:
-            # LINEAR REGULARIZATION SCALING
-            # Goal: Scale regularization strength non-linearly with history length (S-Curve).
-            # 
-            # Key insight: Candidates should have FULL regularization (consistent news quality)
-            # Only user-side vectors (history news) are scaled.
-            history_lengths = mask_bt.sum(dim=1).float()  # [batch]
-            
-            # Tanh S-Curve scaling: 0.0 at 1 click, ramps up, plateaus near 1.0
+            history_lengths = mask_bt.sum(dim=1).float()
             scaling_factor = torch.tanh(0.1 * torch.clamp(history_lengths - 1, min=0))
-            
-            # History vec scaling [batch, 1, 1] for history news regularization
             history_scaling = scaling_factor.view(batch_size, 1, 1)
-            
-            # Apply scaling for regularization calculation ONLY
-            # (Does not affect click prediction, enabling full recall for cold users)
-            weighted_history_vecs = masked_sparse_history * history_scaling  # [batch, num_hist, vocab]
-            # Candidates get FULL regularization (no scaling) for consistent news quality
+            weighted_history_vecs = masked_sparse_history * history_scaling
             weighted_candidate_vecs = sparse_candidate_vecs
 
         else:

@@ -41,6 +41,7 @@ datasets:
     num_words_title: 30
     num_words_abstract: 50
     pretrained_model_name: 'bert-base-uncased'
+    star_pretrained_model_name: "naver/splade-cocondenser-ensembledistil"
     pad_clicked_history: true
     pad_candidate_news: true
     num_categories: 17
@@ -53,6 +54,7 @@ datasets:
     num_words_abstract: 30
     num_words_body: 50
     pretrained_model_name: "Maltehb/danish-bert-botxo"
+    star_pretrained_model_name: "Maltehb/danish-bert-botxo"
     pad_clicked_history: true
     pad_candidate_news: true
     num_categories: 26
@@ -70,13 +72,8 @@ models:
     lambda_n: 0.01  # For candidate news
     lambda_history: 0.001  # For history news (lower = more expressive history)
     lambda_scheduler_steps: 0
-    lambda_scheduler_warmup: false
-    user_pre_gated_layernorm: true
-    freeze_bert_layers: 9
     use_history_length_scaling: true
-    use_sparse_aggregation: true
-    sparse_aggregation_type: "attention_sum" # "attention_sum", "max"
-    dense_pooling: "mean"  # "max" or "mean" - pooling for dense news vectors
+    freeze_bert_layers: 9
     use_asymmetric_projection: true  # When true, UserEncoder uses separate projection vs NewsEncoder
 
   # STAR: Sparse Text-based Attentive Ranker (bi-encoder with text concatenation)
@@ -89,7 +86,6 @@ models:
     freeze_bert_layers: 9
     max_user_tokens: 512           # Fill recent titles until this token limit
     gradient_checkpointing: true
-    pretrained_model_name: "naver/splade-cocondenser-ensembledistil"  # SPLADE backbone
 
   # Neural Baselines
   nrms:

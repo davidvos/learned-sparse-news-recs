@@ -61,7 +61,18 @@ uv run python src/data/preprocess_mind.py
 
 #### EBNeRD Setup
 ```bash
-uv run python src/data/preprocess_ebnerd.py --dataset ebnerd
+# 1. Create the directory structure
+mkdir -p data/ebnerd/{train,validation}
+
+# 2. Place the raw Parquet files (from RecSys Challenge 2024)
+# - data/ebnerd/articles.parquet
+# - data/ebnerd/train/behaviors.parquet
+# - data/ebnerd/train/history.parquet
+# - data/ebnerd/validation/behaviors.parquet
+# - data/ebnerd/validation/history.parquet
+
+# 3. Run preprocessing pipeline
+uv run python src/data/preprocess_ebnerd.py
 ```
 
 Pre-tokenizing the news content is highly recommended to avoid bottlenecks during training:

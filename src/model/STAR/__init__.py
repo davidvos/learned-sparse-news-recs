@@ -88,9 +88,11 @@ class STAR(nn.Module):
         self.device = device
         
         # Load SPLADE or BERT backbone
-        pretrained_name = model_config.get(
-            'pretrained_model_name',
-            dataset_config.get('pretrained_model_name', 'naver/splade-cocondenser-ensembledistil')
+        pretrained_name = (
+            dataset_config.get('star_pretrained_model_name') or
+            model_config.get('pretrained_model_name') or
+            dataset_config.get('pretrained_model_name') or
+            'naver/splade-cocondenser-ensembledistil'
         )
         self.plm = AutoModelForMaskedLM.from_pretrained(
             pretrained_name,
