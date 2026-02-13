@@ -2,7 +2,6 @@
 # This experiment tests LSNR with lower regularization
 
 # Inherit from base configuration
-_base_: "base.yaml"
 
 # Experiment metadata
 experiment:
@@ -16,7 +15,6 @@ experiment:
 models:
   lsnr:
     lambda_n: 1e-5  # 10x lower regularization
-    lambda_u: 1e-5  # 10x lower regularization
 
 # Logging overrides
 logging:

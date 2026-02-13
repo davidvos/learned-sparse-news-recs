@@ -9,27 +9,19 @@
 global:
   seed: 42
   device: "auto"  # auto, cuda, mps, cpu
-  data_path: "./data/adressa_raw"          # Raw Adressa logs (for preprocessing)
-  output_path: "./data/adressa"            # Processed Adressa splits
-  history_size: 30                          # Max history length for user sequences
-  negative_sampling_ratio: 8                # Negatives per positive for training data
-  eval_negative_samples: 4                  # Negatives per positive impression at eval
-  min_interactions: 0                       # Filter threshold applied during preprocessing
-  use_adressa_style_preprocessing: true
-  negative_sampling_exclude_history: true
-  negative_sampling_mode: "uniform"        # "uniform" or "popularity"
-  negative_sampling_popularity_top_k: 5000
-  eval_negative_sampling_mode: "uniform"
-  eval_negative_sampling_popularity_top_k: 5000
+  min_interactions: 0
 
 # Training defaults (individual experiments override as needed)
 training:
   learning_rate: 0.00001
   batch_size: 16
-  num_epochs: 10
-  num_workers: 2
+  num_epochs: 100
+  num_workers: 8
   eval_every: 500
+  history_dropout: false
+  history_dropout_prob: 0.5
   cold_threshold: 0
+  enable_cold_start_eval: true
   eval_split: "val"  # val or test
   gradient_clip_norm: 1.0
   scheduler:
@@ -37,73 +29,108 @@ training:
     step_size: 1000
     gamma: 0.9
   early_stopping:
-    patience: 100
-    monitor: "val_auc"
+    patience: 10
+    monitor: "ret_ndcg10"
     mode: "max"
 
 # Dataset specifications
 datasets:
   mind:
-    path: "./data/mind"
-    num_clicked_news_a_user: 30
-    num_words_title: 20
+    path: "./data/mind_small"
+    num_clicked_news_a_user: 50
+    num_words_title: 30
     num_words_abstract: 50
-    pretrained_model_name: "bert-base-uncased"
+    pretrained_model_name: 'bert-base-uncased'
+    pad_clicked_history: true
+    pad_candidate_news: true
+    num_categories: 17
+    num_subcategories: 264
 
-  adressa:
-    path: "./data/adressa"
-    raw_path: "./data/adressa_raw"
-    num_clicked_news_a_user: 30
+  ebnerd:
+    path: "./data/ebnerd"
+    num_clicked_news_a_user: 50
     num_words_title: 20
-    num_words_abstract: 0
-    pretrained_model_name: "NbAiLab/nb-bert-base"
-    sparse_vocab_size: 30522
-    train_ratio: 0.7
-    val_ratio: 0.2
-    num_weeks: 4
-    sequence_length: 30
-    time_window_hours: 3
+    num_words_abstract: 30
+    num_words_body: 50
+    pretrained_model_name: "Maltehb/danish-bert-botxo"
+    pad_clicked_history: true
+    pad_candidate_news: true
+    num_categories: 26
+    num_subcategories: 83
 
-# Model hyperparameters
+# Model configurations
 models:
+  # Proposed Model
   lsnr:
     model: "lsnr"
+    negative_sampling_ratio: 16
     num_attention_heads: 16
     query_vector_dim: 200
     dropout_probability: 0.2
-    lambda_n: 1e-4
-    lambda_u: 1e-4
+    lambda_n: 0.01  # For candidate news
+    lambda_history: 0.001  # For history news (lower = more expressive history)
     lambda_scheduler_steps: 0
     lambda_scheduler_warmup: false
-    news_pre_projection_layernorm: true
     user_pre_gated_layernorm: true
+    freeze_bert_layers: 9
+    use_history_length_scaling: true
+    use_sparse_aggregation: true
+    sparse_aggregation_type: "attention_sum" # "attention_sum", "max"
+    dense_pooling: "mean"  # "max" or "mean" - pooling for dense news vectors
+    use_asymmetric_projection: true  # When true, UserEncoder uses separate projection vs NewsEncoder
 
+  # STAR: Sparse Text-based Attentive Ranker (bi-encoder with text concatenation)
+  star:
+    model: "star"
+    negative_sampling_ratio: 16
+    lambda_n: 0.01                 # FLOPS regularizer weight
+    lambda_scheduler_steps: 50000
+    lambda_scheduler_warmup: true
+    freeze_bert_layers: 9
+    max_user_tokens: 512           # Fill recent titles until this token limit
+    gradient_checkpointing: true
+    pretrained_model_name: "naver/splade-cocondenser-ensembledistil"  # SPLADE backbone
+
+  # Neural Baselines
   nrms:
     model: "nrms"
+    negative_sampling_ratio: 4
     num_attention_heads: 16
     query_vector_dim: 200
     dropout_probability: 0.2
+    freeze_bert_layers: 9
 
   naml:
     model: "naml"
+    negative_sampling_ratio: 4
     num_attention_heads: 16
     query_vector_dim: 200
     dropout_probability: 0.2
     num_filters: 300
     window_size: 3
-    num_categories: 288
     category_embedding_dim: 100
+    freeze_bert_layers: 9
 
   lstur:
     model: "lstur"
+    negative_sampling_ratio: 4
     num_attention_heads: 16
     query_vector_dim: 200
     dropout_probability: 0.2
     num_filters: 300
     window_size: 3
-    num_categories: 288
     category_embedding_dim: 100
     num_users: 595706
+    freeze_bert_layers: 9
+
+  npa:
+    model: "npa"
+    negative_sampling_ratio: 4
+    dropout_probability: 0.2
+    num_users: 595706
+    freeze_bert_layers: 9
+
+
 
 # Logging configuration
 logging:

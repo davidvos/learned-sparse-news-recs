@@ -2,7 +2,6 @@
 # This experiment uses the standard LSNR configuration as a baseline
 
 # Inherit from base configuration
-_base_: "base.yaml"
 
 # Experiment metadata
 experiment:

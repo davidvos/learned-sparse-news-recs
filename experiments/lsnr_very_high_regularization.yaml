@@ -2,7 +2,6 @@
 # This experiment tests LSNR with much higher regularization to combat semantic collapse
 
 # Inherit from base configuration
-_base_: "base.yaml"
 
 # Experiment metadata
 experiment:
@@ -17,7 +16,6 @@ models:
   lsnr:
     dropout_probability: 0.1
     lambda_n: 1e-2
-    lambda_u: 1e-2
 
 # Training overrides
 training:

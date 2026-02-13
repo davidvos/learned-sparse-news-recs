@@ -2,7 +2,7 @@
 
 Repository accompanying the SIGIR paper **“Reliable and Controllable Learned Sparse News Recommendations for Short-History Users.”**
 
-LSNR learns sparse, bag-of-words-style user profiles that restore reliable retrieval quality for short-history users while retaining an explicit performance–efficiency trade-off. This codebase reproduces the paper’s experiments across MIND and Adressa, and internal ablations, and provides utilities to adapt the approach to new settings. Unless otherwise stated, examples assume the 10-week Adressa setup described below.
+LSNR learns sparse, bag-of-words-style user profiles that restore reliable retrieval quality for short-history users while retaining an explicit performance–efficiency trade-off. This codebase reproduces the paper’s experiments on MIND and internal ablations, and provides utilities to adapt the approach to new settings.
 
 ---
 
@@ -16,7 +16,14 @@ LSNR learns sparse, bag-of-words-style user profiles that restore reliable retri
 
 ## 1. Environment Setup
 
-The project targets Python ≥3.10. We recommend creating a virtual environment:
+The project targets Python ≥3.10. We recommend using `uv` for dependency management:
+
+```bash
+uv sync
+source .venv/bin/activate
+```
+
+Alternatively, you can use `pip`:
 
 ```bash
 python3 -m venv .venv
@@ -27,8 +34,6 @@ pip install -r requirements.txt
 
 Weights & Biases is used for experiment logging. Either log in with `wandb login` or disable logging by setting `logging.wandb.enabled: false` in the experiment YAML.
 
-Optional: Instead of `pip`, you can use `uv sync` with the provided `pyproject.toml`/`uv.lock` files.
-
 ---
 
 ## 2. Data Preparation
@@ -37,7 +42,7 @@ Create the canonical directory layout before unpacking datasets:
 
 ```bash
 mkdir -p data/mind/{train,val,test}
-mkdir -p data/adressa/{train,val,test}
+
 ```
 
 ### 2.1 MIND
@@ -50,17 +55,7 @@ unzip MINDsmall_dev.zip   -d data/mind/val
 unzip MINDsmall_dev.zip   -d data/mind/test
 ```
 
-### 2.2 Adressa 10-week
 
-Download the 10-week Adressa release and unpack it under `data/adressa/raw`:
-
-```bash
-wget https://reclab.idi.ntnu.no/dataset/three_month.tar.gz
-mkdir -p data/adressa/raw
-tar -xzf three_month.tar.gz -C data/adressa/raw --strip-components=1
-```
-
-After extraction, ensure `data/adressa/raw` contains `news.tsv`, `behaviors.tsv`, and the associated metadata files. The preprocessing script will derive the train/val/test splits and mapping files from this location.
 
 ---
 
@@ -72,8 +67,11 @@ Preprocessing scripts materialize the tokenised splits, mapping files, and cold-
 # MIND
 python src/data_preprocess_mind.py
 
-# Adressa
-python src/data_preprocess_adressa.py --dataset adressa
+
+
+# EBNeRD
+python src/data_preprocess_ebnerd.py --dataset ebnerd
+
 ```
 
 Outputs are written to `data/<dataset>/{train,val,test}/`, including:
@@ -102,8 +100,7 @@ To create a new experiment, copy an existing YAML file and adjust the relevant s
 Training is driven by `src/train.py` and consumes experiment names:
 
 ```bash
-# Adressa default run (recommended starting point)
-python src/train.py lsnr_baseline adressa
+
 
 # MIND variant
 python src/train.py lsnr_baseline mind
@@ -126,8 +123,7 @@ LSNR models expose a quadratic lambda warm-up; sparsity settings live in the exp
 `src/evaluate.py` offers a consolidated interface that loads checkpoints and runs retrieval metrics over multiple cold thresholds:
 
 ```bash
-# Evaluate the baseline LSNR model on Adressa validation cold thresholds 0-5
-python src/evaluate.py lsnr --dataset adressa --split val
+
 
 # Evaluate NRMS on MIND with a custom checkpoint directory
 python src/evaluate.py nrms --dataset mind --checkpoint-dir checkpoints/my_nrms_run
@@ -138,6 +134,8 @@ Useful flags:
 - `--cold-thresholds`: space-separated list (default `[0, 1, 2, 3, 4, 5]`)
 - `--lr`: select checkpoints trained with a specific learning rate
 - `--batch-size`: override evaluation batch size
+- `--regularization`: select checkpoint by regularization level (e.g., `baseline`)
+
 
 ## 7. Extending to New Datasets
 
@@ -146,7 +144,7 @@ To adapt LSNR to a new corpus:
 1. Implement a dataset preprocessor producing `news.tsv`, `behaviors.tsv`, and derived mapping files.
 2. Add a dataset configuration entry in `experiments/base.yaml` specifying tokenisation settings (`pretrained_model_name`, word limits, history length).
 3. Update the experiment YAML with the new dataset key and any model overrides.
-4. Reuse `datasets.BaseDataset` (MIND-style) or derive a new class following the Adressa loaders if schema differs.
+4. Reuse `datasets.BaseDataset` (MIND-style).
 
 ---
 

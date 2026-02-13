@@ -1,5 +1,6 @@
 import os
 import random
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -12,51 +13,63 @@ class LambdaScheduler:
     Scheduler for regularization lambda parameters that implements quadratic warmup.
     Lambda values start at 0 and quadratically increase to target values over specified steps.
     """
-    def __init__(self, target_lambda_n, target_lambda_u, warmup_steps, enable_warmup=True):
+    def __init__(
+        self, 
+        target_lambda_n: float, 
+        warmup_steps: int, 
+        enable_warmup: bool = True, 
+        initial_lambda_n: float = 0.0, 
+    ):
         """
         Args:
             target_lambda_n (float): Target lambda value for news regularization
-            target_lambda_u (float): Target lambda value for user regularization  
             warmup_steps (int): Number of steps to reach target lambda values
             enable_warmup (bool): Whether to enable warmup (if False, uses target values immediately)
+            initial_lambda_n (float): Initial lambda value for news
         """
         self.target_lambda_n = target_lambda_n
-        self.target_lambda_u = target_lambda_u
+        self.initial_lambda_n = initial_lambda_n
         self.warmup_steps = warmup_steps
         self.enable_warmup = enable_warmup
         self.current_step = 0
         
-    def step(self):
+    def step(self) -> None:
         """Increment the current step"""
         self.current_step += 1
         
-    def get_lambda_values(self):
+    def get_lambda_values(self) -> float:
         """
         Get current lambda values based on the schedule.
         Returns:
-            tuple: (current_lambda_n, current_lambda_u)
+            float: current_lambda_n
         """
         if not self.enable_warmup or self.current_step >= self.warmup_steps:
             # After warmup or if disabled, use target values
-            return self.target_lambda_n, self.target_lambda_u
+            return self.target_lambda_n
         else:
-            # Quadratic warmup: lambda = target * (step / warmup_steps)^2
+            # Quadratic warmup: lambda = initial + (target - initial) * (step / warmup_steps)^2
             progress = self.current_step / self.warmup_steps
             scale_factor = progress ** 2
-            current_lambda_n = self.target_lambda_n * scale_factor
-            current_lambda_u = self.target_lambda_u * scale_factor
-            return current_lambda_n, current_lambda_u
+            current_lambda_n = self.initial_lambda_n + (self.target_lambda_n - self.initial_lambda_n) * scale_factor
+            return current_lambda_n
+
 
 class EarlyStopping:
-    def __init__(self, patience=5):
+    """
+    Early stopping helper to stop training when validation loss stops improving.
+    """
+    def __init__(self, patience: int = 5):
         self.patience = patience
         self.counter = 0
-        self.best_loss = np.inf
+        self.best_loss = float('inf')
 
-    def __call__(self, val_loss):
+    def __call__(self, val_loss: float) -> Tuple[bool, bool]:
         """
-        if you use other metrics where a higher value is better, e.g. accuracy,
-        call this with its corresponding negative value
+        Args:
+            val_loss: Validation loss (or negative metric if higher is better).
+            
+        Returns:
+            Tuple[bool, bool]: (early_stop, is_better)
         """
         if val_loss < self.best_loss:
             early_stop = False
@@ -73,40 +86,61 @@ class EarlyStopping:
 
         return early_stop, get_better
 
-def dcg_score(y_true, y_score, k=10):
+
+def dcg_score(y_true: np.ndarray, y_score: np.ndarray, k: int = 10) -> float:
+    """Compute Discounted Cumulative Gain at k."""
     order = np.argsort(y_score)[::-1]
     y_true = np.take(y_true, order[:k])
     gains = 2**y_true - 1
     discounts = np.log2(np.arange(len(y_true)) + 2)
-    return np.sum(gains / discounts)
+    return float(np.sum(gains / discounts))
 
 
-def ndcg_score(y_true, y_score, k=10):
+def ndcg_score(y_true: np.ndarray, y_score: np.ndarray, k: int = 10) -> float:
+    """Compute Normalized Discounted Cumulative Gain at k."""
     best = dcg_score(y_true, y_true, k)
     actual = dcg_score(y_true, y_score, k)
-    return actual / best
+    return actual / best if best > 0 else 0.0
 
 
-def mrr_score(y_true, y_score):
+def mrr_score(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    """Compute Mean Reciprocal Rank."""
     order = np.argsort(y_score)[::-1]
     y_true = np.take(y_true, order)
     rr_score = y_true / (np.arange(len(y_true)) + 1)
-    return np.sum(rr_score) / np.sum(y_true)
+    return float(np.sum(rr_score) / np.sum(y_true)) if np.sum(y_true) > 0 else 0.0
 
-def hr_score(y_true, y_score, k=10):
+
+def hr_score(y_true: np.ndarray, y_score: np.ndarray, k: int = 10) -> float:
+    """Compute Hit Rate at k."""
     order = np.argsort(y_score)[::-1][:k]
     y_true_topk = np.take(y_true, order)
     return 1.0 if np.sum(y_true_topk) > 0 else 0.0
 
-def recall_score(y_true, y_score, k=10):
+
+def recall_score(y_true: np.ndarray, y_score: np.ndarray, k: int = 10) -> float:
+    """Compute Recall at k."""
     order = np.argsort(y_score)[::-1][:k]
     y_true_topk = np.take(y_true, order)
     relevant = np.sum(y_true)
     if relevant == 0:
-        return np.nan
-    return np.sum(y_true_topk) / relevant
+        return float('nan')
+    return float(np.sum(y_true_topk) / relevant)
 
-def calculate_single_user_metric(pair):
+
+def calculate_single_user_metric(pair: Tuple[np.ndarray, np.ndarray]) -> List[float]:
+    """
+    Calculate metrics for a single user's prediction.
+    
+    Args:
+        pair: Tuple of (y_true, y_score) arrays.
+        
+    Returns:
+        List of metrics in fixed order:
+        [AUC, MRR, NDCG@5, NDCG@10, NDCG@20, NDCG@50, NDCG@100,
+         HR@5, HR@10, HR@20, HR@50, HR@100,
+         Recall@5, Recall@10, Recall@20, Recall@50, Recall@100]
+    """
     try:
         auc = roc_auc_score(*pair)
         mrr = mrr_score(*pair)
@@ -129,40 +163,73 @@ def calculate_single_user_metric(pair):
                 hr5, hr10, hr20, hr50, hr100,
                 recall5, recall10, recall20, recall50, recall100]
     except ValueError:
-        return [np.nan] * 17
-    
+        return [float('nan')] * 17
 
-def latest_checkpoint(directory):
+
+def latest_checkpoint(directory: str) -> Optional[str]:
+    """Find the latest checkpoint file in a directory based on step number."""
     if not os.path.exists(directory):
         return None
-    all_checkpoints = {
-        int(x.split('.')[-2].split('-')[-1]): x
-        for x in os.listdir(directory)
-    }
+    
+    try:
+        all_checkpoints = {
+            int(x.split('.')[-2].split('-')[-1]): x
+            for x in os.listdir(directory)
+            if x.endswith('.pth') and 'ckpt-' in x
+        }
+    except (ValueError, IndexError):
+        # Fallback if naming convention doesn't match
+        return None
+        
     if not all_checkpoints:
         return None
-    return os.path.join(directory,
-                        all_checkpoints[max(all_checkpoints.keys())])
+        
+    return os.path.join(directory, all_checkpoints[max(all_checkpoints.keys())])
 
-def log_metrics(metrics: dict) -> None:
+
+def log_metrics(metrics: Dict[str, Any]) -> None:
     """Log metrics to wandb."""
     wandb.log(metrics)
 
-def save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, checkpoint_name: str, val_auc: float) -> None:
-    """Save model and optimizer state to checkpoint."""
+
+def save_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    checkpoint_name: str,
+    monitor_value: float,
+    monitor_metric: str,
+    monitor_mode: str,
+) -> None:
+    """Save model/optimizer state along with early stopping metadata."""
     checkpoint_dir = f"./checkpoints/{checkpoint_name}/"
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
+    
+    # Clean up old checkpoints to save space (keep only latest)
     for file in os.listdir(checkpoint_dir):
         os.remove(os.path.join(checkpoint_dir, file))
+        
+    early_stop_value = monitor_value if monitor_mode == 'min' else -monitor_value
+    
+    # Save new checkpoint
+    try:
+        step = wandb.run.step if wandb.run else 0
+    except Exception:
+        step = 0
+        
     torch.save(
         {
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'step': wandb.run.step,
-            'early_stop_value': -val_auc
-        }, os.path.join(checkpoint_dir, f"ckpt-{wandb.run.step}.pth")
+            'step': step,
+            'monitor_metric': monitor_metric,
+            'monitor_mode': monitor_mode,
+            'monitor_value': monitor_value,
+            'early_stop_value': early_stop_value,
+        },
+        os.path.join(checkpoint_dir, f"ckpt-{step}.pth")
     )
+
 
 def set_seeds(seed: int = 42) -> None:
     """Set random seeds for reproducibility."""
@@ -170,9 +237,8 @@ def set_seeds(seed: int = 42) -> None:
     np.random.seed(seed)
     random.seed(seed)
 
-# Legacy argument parser removed - use argparse directly in scripts
 
-def get_device(device_preference: str = "auto") -> 'torch.device':
+def get_device(device_preference: str = "auto") -> torch.device:
     """
     Select the best available device based on preference.
     
@@ -183,7 +249,6 @@ def get_device(device_preference: str = "auto") -> 'torch.device':
         Selected torch device
     """
     if device_preference == "auto":
-        # User preference: CUDA if available, else MPS, else CPU
         if torch.cuda.is_available():
             return torch.device("cuda")
         elif torch.backends.mps.is_built():
@@ -205,7 +270,8 @@ def get_device(device_preference: str = "auto") -> 'torch.device':
     else:
         raise ValueError(f"Invalid device preference: {device_preference}")
 
-def prepare_wandb_config(config: dict, model_type: str, dataset_type: str) -> dict:
+
+def prepare_wandb_config(config: Dict[str, Any], model_type: str, dataset_type: str) -> Dict[str, Any]:
     """
     Prepare configuration for WandB logging with proper type conversion and structure.
     
@@ -217,14 +283,14 @@ def prepare_wandb_config(config: dict, model_type: str, dataset_type: str) -> di
     Returns:
         Properly formatted configuration for WandB
     """
-    # Create a clean config structure for WandB
-    wandb_config = {}
+    wandb_config: Dict[str, Any] = {}
+    model_config = config.get('models', {}).get(model_type, {})
     
     # Global settings
     wandb_config['global'] = {
         'seed': config['global']['seed'],
         'device': config['global']['device'],
-        'negative_sampling_ratio': config['global']['negative_sampling_ratio']
+        'negative_sampling_ratio': model_config.get('negative_sampling_ratio', config['global'].get('negative_sampling_ratio', 4))
     }
     
     # Training settings
@@ -246,8 +312,6 @@ def prepare_wandb_config(config: dict, model_type: str, dataset_type: str) -> di
     # Convert string scientific notation to floats for lambda parameters
     if 'lambda_n' in model_config:
         model_config['lambda_n'] = float(model_config['lambda_n'])
-    if 'lambda_u' in model_config:
-        model_config['lambda_u'] = float(model_config['lambda_u'])
     if 'lambda_scheduler_steps' in model_config:
         model_config['lambda_scheduler_steps'] = int(model_config['lambda_scheduler_steps'])
     
@@ -267,9 +331,9 @@ def prepare_wandb_config(config: dict, model_type: str, dataset_type: str) -> di
     return wandb_config
 
 
-def flatten_dict(d, parent_key='', sep='.'):  # Helper to flatten nested dicts
+def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
     """Recursively flattens a nested dictionary, joining keys with sep."""
-    items = []
+    items: List[Tuple[str, Any]] = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         if isinstance(v, dict):
@@ -277,3 +341,72 @@ def flatten_dict(d, parent_key='', sep='.'):  # Helper to flatten nested dicts
         else:
             items.append((new_key, v))
     return dict(items)
+
+
+
+# ============================================================================
+# Model Registry
+# ============================================================================
+
+from model.baselines import NRMSBERT, NAMLBERT, LSTURBERT, NPABERT
+from model.LSNR import LSNR
+from model.STAR import STAR
+
+MODEL_REGISTRY = {
+    'nrms': NRMSBERT,
+    'naml': NAMLBERT,
+    'lstur': LSTURBERT,
+    'lsnr': LSNR,
+    'star': STAR,
+    'npa': NPABERT,
+}
+
+def load_model_and_checkpoint(
+    model_type: str,
+    dataset_type: str,
+    config: Dict[str, Any],
+    device: torch.device,
+    checkpoint_dir: Optional[str] = None
+) -> Tuple[torch.nn.Module, Dict[str, Any], int]:
+    """
+    Load a model and optionally a checkpoint.
+    
+    Args:
+        model_type: Type of model to load (e.g., 'nrms', 'lsnr')
+        dataset_type: Type of dataset (e.g., 'mind')
+        config: Full configuration dictionary
+        device: Device to load model on
+        checkpoint_dir: Directory containing checkpoints (optional)
+        
+    Returns:
+        (model, checkpoint_data, start_step)
+    """
+    if model_type not in MODEL_REGISTRY:
+        raise ValueError(f"Unknown model type: {model_type}")
+
+    model_class = MODEL_REGISTRY[model_type]
+    
+    # Extract configs
+    model_config = config['models'][model_type]
+    dataset_config = config['datasets'][dataset_type]
+    
+    # Initialize model
+    model = model_class(model_config, dataset_config, device).to(device)
+    
+    checkpoint_data = {}
+    start_step = 0
+    
+    if checkpoint_dir and os.path.exists(checkpoint_dir):
+        # Try to find latest checkpoint
+        ckpt_path = latest_checkpoint(checkpoint_dir)
+        if ckpt_path:
+            print(f"Loading checkpoint from {ckpt_path}")
+            checkpoint = torch.load(ckpt_path, map_location=device)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            checkpoint_data = checkpoint
+            start_step = checkpoint.get('step', 0)
+        else:
+            print(f"No checkpoint found in {checkpoint_dir}, initializing from scratch.")
+            
+    return model, checkpoint_data, start_step
+

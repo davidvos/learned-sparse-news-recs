@@ -2,7 +2,6 @@
 # This experiment tests LSNR without regularization to understand its impact
 
 # Inherit from base configuration
-_base_: "base.yaml"
 
 # Experiment metadata
 experiment:
@@ -16,7 +15,6 @@ experiment:
 models:
   lsnr:
     lambda_n: 0.0
-    lambda_u: 0.0
     lambda_scheduler_steps: 5000
     lambda_scheduler_warmup: false
 

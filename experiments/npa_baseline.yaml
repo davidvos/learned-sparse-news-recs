@@ -1,0 +1,16 @@
+# NPA Baseline Experiment
+
+
+experiment:
+  name: "npa_baseline"
+  model: "npa"
+  description: "NPA baseline experiment with personalized attention"
+  tags: ["baseline", "npa"]
+
+logging:
+  wandb:
+    project: "auto"
+    tags: ["baseline", "npa"]
+    notes: "NPA baseline experiment"
+
+
