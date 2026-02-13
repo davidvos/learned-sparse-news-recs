@@ -1,7 +1,5 @@
 # LSNR: Learned Sparse News Recommendations with Sequential User Modeling
 
-Official repository for the research paper **"Reliable and Controllable Learned Sparse News Recommendations for Short-History Users."**
-
 Learned sparse retrieval (LSR) offers efficiency and interpretability advantages over dense retrieval, yet its application to news recommendations has not yet been explored. Current LSR approaches for recommender systems, such as STAR, are ill-suited for news recommendations because they treat a user's historical interaction as a single concatenated query string. This creates two bottlenecks: (i) It discards the sequential nature of news reading behavior, thus failing to capture how user interests shift over time. (ii) It quickly exceeds language model context windows, requiring truncation of user histories, which degrades recommendation quality.
 
 To address these bottlenecks, we introduce learned sparse news recommendations (LSNR). LSNR replaces naive concatenation with a sequential user encoder that processes news articles independently. This approach explicitly models the sequential order of historical interactions and eliminates the context window bottleneck. Experiments on the MIND and EBNeRD benchmarks demonstrate that LSNR significantly outperforms STAR. These findings also hold in short-history settings, where history truncation is not a factor. We benchmark LSNR against state-of-the-art dense news recommenders, showing it remains competitive in standard settings while outperforming dense models in short-history scenarios. 
