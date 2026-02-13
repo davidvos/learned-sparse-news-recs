@@ -58,6 +58,7 @@ datasets:
     pad_candidate_news: true
     num_categories: 26
     num_subcategories: 83
+    num_users: 18827
 
 # Model configurations
 models:
