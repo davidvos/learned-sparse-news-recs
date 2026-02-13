@@ -34,7 +34,6 @@ class LambdaScheduler:
         self.current_step = 0
         
     def step(self) -> None:
-        """Increment the current step"""
         self.current_step += 1
         
     def get_lambda_values(self) -> float:
@@ -188,7 +187,6 @@ def latest_checkpoint(directory: str) -> Optional[str]:
 
 
 def log_metrics(metrics: Dict[str, Any]) -> None:
-    """Log metrics to wandb."""
     wandb.log(metrics)
 
 
@@ -232,7 +230,6 @@ def save_checkpoint(
 
 
 def set_seeds(seed: int = 42) -> None:
-    """Set random seeds for reproducibility."""
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
@@ -343,10 +340,6 @@ def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dic
     return dict(items)
 
 
-
-# ============================================================================
-# Model Registry
-# ============================================================================
 
 from model.baselines import NRMSBERT, NAMLBERT, LSTURBERT, NPABERT
 from model.LSNR import LSNR

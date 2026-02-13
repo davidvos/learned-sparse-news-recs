@@ -13,20 +13,10 @@ class DotProductClickPredictor(nn.Module):
         return vec / (self.bm25_k1 + vec + 1e-8)
 
     def forward(self, candidate_news_vector, user_vector):
-        """
-        Args:
-            candidate_news_vector: batch_size, candidate_size, X (sparse SPLADE-style vectors)
-            user_vector: batch_size, X (sparse SPLADE-style vectors)
-        Returns:
-            (shape): batch_size, candidate_size
-        """
-        # Apply BM25 saturation symmetrically to both sides if enabled
         if self.use_bm25_saturation:
             candidate_news_vector = self._apply_bm25_saturation(candidate_news_vector)
             user_vector = self._apply_bm25_saturation(user_vector)
         
-        # Compute dot product
-        # batch_size, candidate_size
         probability = torch.bmm(candidate_news_vector, user_vector.unsqueeze(dim=-1)).squeeze(dim=-1)
         
         return probability
@@ -49,23 +39,10 @@ class AdditiveAttention(nn.Module):
             torch.empty(query_vector_dim).uniform_(-0.1, 0.1))
 
     def forward(self, candidate_vector, mask=None, return_weights=False):
-        """
-        Args:
-            candidate_vector: batch_size, candidate_size, candidate_vector_dim
-            mask: batch_size, candidate_size (1=Real, 0=Padding)
-            return_weights: if True, returns (aggregation, weights)
-        Returns:
-            (shape) batch_size, candidate_vector_dim (if return_weights=False)
-            (shape) batch_size, candidate_size (if return_weights=True)
-        """
-        # batch_size, candidate_size, query_vector_dim
         temp = torch.tanh(self.linear(candidate_vector))
-        
-        # batch_size, candidate_size
         scores = torch.matmul(temp, self.attention_query_vector)
         
         if mask is not None:
-            # Set scores of padded items to -inf before softmax
             scores = scores.masked_fill(mask == 0, -1e9)
             
         candidate_weights = F.softmax(scores, dim=1)
@@ -73,7 +50,6 @@ class AdditiveAttention(nn.Module):
         if return_weights:
             return candidate_weights
 
-        # batch_size, candidate_vector_dim
         target = torch.bmm(candidate_weights.unsqueeze(dim=1),
                            candidate_vector).squeeze(dim=1)
         return target
@@ -130,18 +106,9 @@ class SimilarityAttention(nn.Module):
         super(SimilarityAttention, self).__init__()
 
     def forward(self, wrt_vector, candidate_vector):
-        """
-        Args:
-            wrt_vector: batch_size, candidate_vector_dim
-            candidate_vector: batch_size, candidate_size, candidate_vector_dim
-        Returns:
-            (shape) batch_size, candidate_vector_dim
-        """
-        # batch_size, candidate_size
         candidate_weights = F.softmax(torch.bmm(
             candidate_vector, wrt_vector.unsqueeze(dim=2)).squeeze(dim=2),
                                       dim=1)
-        # batch_size, candidate_vector_dim
         target = torch.bmm(candidate_weights.unsqueeze(dim=1),
                            candidate_vector).squeeze(dim=1)
         return target

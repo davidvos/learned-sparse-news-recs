@@ -1,7 +1,4 @@
-"""
-Simple configuration management for news recommendation training.
-Handles YAML loading, inheritance, and command-line argument overrides.
-"""
+"""Simple configuration management for news recommendation training."""
 import argparse
 import os
 import yaml
@@ -21,7 +18,6 @@ def load_config(config_path: str) -> Dict[str, Any]:
     """
     config_file = Path(config_path)
     if not config_file.exists():
-        # Try checking if it's relative to project root or experiments dir
         repo_root = Path(__file__).resolve().parent.parent
         if (repo_root / config_path).exists():
             config_file = repo_root / config_path
@@ -33,11 +29,9 @@ def load_config(config_path: str) -> Dict[str, Any]:
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     
-    # Handle inheritance if _base_ is specified
     if '_base_' in config:
         base_path = config_file.parent / config['_base_']
         if not base_path.exists():
-            # Try resolving relative to repo root if relative path fails
             repo_root = Path(__file__).resolve().parent.parent
             if (repo_root / config['_base_']).exists():
                 base_path = repo_root / config['_base_']
@@ -53,7 +47,6 @@ def load_config(config_path: str) -> Dict[str, Any]:
         # Remove the _base_ key after merging
         config.pop('_base_', None)
     
-    # Convert string scientific notation to proper types
     config = convert_scientific_notation(config)
     
     return config
@@ -113,6 +106,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="auto", help="Device preference (auto, cuda, mps, cpu)")
     parser.add_argument("--cold_threshold", type=int, default=None, help="Cold start threshold override")
     
+    # Evaluation specific
+    parser.add_argument("--eval_mode", type=str, default="retrieval", choices=["retrieval", "dump_predictions"], help="Evaluation mode")
+    parser.add_argument("--split", type=str, default="test", help="Data split to evaluate on (val, test)")
+    parser.add_argument("--output_path", type=str, default="predictions.json", help="Path to save predictions")
+    
     # Flags
     parser.add_argument("--debug", action="store_true", help="Run in debug mode (minimal data/epochs)")
     
@@ -130,35 +128,23 @@ def get_config() -> Tuple[Dict[str, Any], argparse.Namespace]:
         Tuple of (config_dict, params_namespace)
     """
     args = parse_args()
-    
-    # Determine config path
     config_path = args.config_file
-    
-    # If config file is just 'config.yaml' (default) but model_type is specified,
-    # check if there's a specific experiment config for this model?
-    # No, keep it simple: explicit config_file or use default.
-    # However, if experiment_name is provided, we might want to look for that?
-    # Let's stick to explicit config_file for now.
     
     try:
         config = load_config(config_path)
     except FileNotFoundError:
-        # Fallback: if user provided a config name that exists in experiments/ folder
         if (Path("experiments") / config_path).exists():
              config = load_config(str(Path("experiments") / config_path))
         else:
             raise
 
-    # --- Apply Overrides ---
+    if 'global' not in config: config['global'] = {}
+    config['global']['dataset'] = args.dataset
+    config['global']['model_type'] = args.model_type
     
-    # Dataset
-    config['_dataset'] = args.dataset
-    
-    # Global settings
     if args.device:
         config['global']['device'] = args.device
         
-    # Training settings
     if args.batch_size:
         config['training']['batch_size'] = args.batch_size
     if args.epochs:
@@ -168,18 +154,20 @@ def get_config() -> Tuple[Dict[str, Any], argparse.Namespace]:
     if args.cold_threshold is not None:
         config['training']['cold_threshold'] = args.cold_threshold
         
-    # Experiment metadata
     if 'experiment' not in config:
         config['experiment'] = {}
         
     if args.experiment_name:
         config['experiment']['name'] = args.experiment_name
     elif 'name' not in config['experiment']:
-        # Auto-generate name if missing
         config['experiment']['name'] = f"{args.model_type}_{args.dataset}_{config['training']['learning_rate']}"
         
     if args.model_type:
         config['experiment']['model'] = args.model_type
+        
+    # Ensure description exists
+    if 'description' not in config['experiment']:
+        config['experiment']['description'] = f"Training {config['experiment'].get('model', 'unknown')} on {config['global']['dataset']}"
         
     # Debug mode overrides
     if args.debug:

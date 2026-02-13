@@ -1,157 +1,126 @@
-# Learned Sparse News Recommendations (LSNR)
+# LSNR: Learned Sparse News Recommendations with Sequential User Modeling
 
-Repository accompanying the SIGIR paper **“Reliable and Controllable Learned Sparse News Recommendations for Short-History Users.”**
+Official repository for the research paper **"Reliable and Controllable Learned Sparse News Recommendations for Short-History Users."**
 
-LSNR learns sparse, bag-of-words-style user profiles that restore reliable retrieval quality for short-history users while retaining an explicit performance–efficiency trade-off. This codebase reproduces the paper’s experiments on MIND and internal ablations, and provides utilities to adapt the approach to new settings.
+Learned sparse retrieval (LSR) offers efficiency and interpretability advantages over dense retrieval, yet its application to news recommendations has not yet been explored. Current LSR approaches for recommender systems, such as STAR, are ill-suited for news recommendations because they treat a user's historical interaction as a single concatenated query string. This creates two bottlenecks: (i) It discards the sequential nature of news reading behavior, thus failing to capture how user interests shift over time. (ii) It quickly exceeds language model context windows, requiring truncation of user histories, which degrades recommendation quality.
 
----
-
-## Contents
-
-- `experiments/` – YAML experiment definitions used in the paper
-- `src/` – training, evaluation, datasets, and model implementations
-- `reports/`, `figures/`, `inspect_lsnr_news.py` – analysis notebooks and scripts
+To address these bottlenecks, we introduce learned sparse news recommendations (LSNR). LSNR replaces naive concatenation with a sequential user encoder that processes news articles independently. This approach explicitly models the sequential order of historical interactions and eliminates the context window bottleneck. Experiments on the MIND and EBNeRD benchmarks demonstrate that LSNR significantly outperforms STAR. These findings also hold in short-history settings, where history truncation is not a factor. We benchmark LSNR against state-of-the-art dense news recommenders, showing it remains competitive in standard settings while outperforming dense models in short-history scenarios. 
 
 ---
 
-## 1. Environment Setup
+## 📂 Repository Structure
 
-The project targets Python ≥3.10. We recommend using `uv` for dependency management:
+```text
+├── experiments/      # YAML experiment definitions and model hyperparameters
+├── src/
+│   ├── data/         # Dataset loaders and preprocessing pipelines
+│   ├── model/        # LSNR, STAR, and baseline (NRMS, NAML, etc.) implementations
+│   ├── train.py      # Main training entry point (procedural)
+│   ├── evaluate.py   # Comprehensive evaluation and prediction dumping
+│   ├── config.py     # Configuration management and argument parsing
+│   └── utils.py      # Metrics, logging, and checkpointing utilities
+├── config.yaml       # Global defaults and dataset paths
+└── pyproject.toml    # Environment and dependency specifications
+```
+
+---
+
+## 🚀 Getting Started
+
+### 1. Environment Setup
+The codebase requires Python 3.10+ and uses `uv` for high-performance dependency management.
 
 ```bash
+# Install dependencies
 uv sync
+
+# Activate environment
 source .venv/bin/activate
 ```
 
-Alternatively, you can use `pip`:
-
+Logging is integrated with [Weights & Biases](https://wandb.ai/). Ensure you are logged in:
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+uv run wandb login
 ```
 
-Weights & Biases is used for experiment logging. Either log in with `wandb login` or disable logging by setting `logging.wandb.enabled: false` in the experiment YAML.
+### 2. Data Acquisition & Preprocessing
+LSNR supports the **MIND** (Microsoft News Dataset) and **EBNeRD** datasets.
 
----
-
-## 2. Data Preparation
-
-Create the canonical directory layout before unpacking datasets:
-
+#### MIND Setup
 ```bash
+# 1. Download and extract MIND (small/large as needed)
 mkdir -p data/mind/{train,val,test}
+# ... download scripts ...
 
+# 2. Run preprocessing pipeline
+uv run python src/data_preprocess_mind.py
 ```
 
-### 2.1 MIND
+#### EBNeRD Setup
+```bash
+uv run python src/data_preprocess_ebnerd.py --dataset ebnerd
+```
+
+Pre-tokenizing the news content is highly recommended to avoid bottlenecks during training:
 
 ```bash
-wget https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_train.zip
-wget https://recodatasets.z20.web.core.windows.net/newsrec/MINDsmall_dev.zip
-unzip MINDsmall_train.zip -d data/mind/train
-unzip MINDsmall_dev.zip   -d data/mind/val
-unzip MINDsmall_dev.zip   -d data/mind/test
+uv run python src/data/tokenize.py --dataset mind
 ```
 
-
+Preprocessing generates standardized `behaviors_parsed.tsv` and `news.tsv` files, while the tokenization script produces `news_tokenized.pt` for accelerated training.
 
 ---
 
-## 3. Preprocessing Pipelines
+## 🧪 Running Experiments
 
-Preprocessing scripts materialize the tokenised splits, mapping files, and cold-start variants used during training/evaluation. They read defaults from `config.yaml` but accept overrides via environment variables or CLI arguments.
+Experiments are managed via YAML files in `experiments/`, supporting inheritance and parameter overrides.
+
+### Training
+To train a model (e.g., LSNR on MIND):
+```bash
+uv run python src/train.py --config_file experiments/lsnr_baseline.yaml --model_type lsnr --dataset mind
+```
+
+**Key Parameters:**
+- `--config_file`: Path to experiment YAML.
+- `--model_type`: Model architecture (`lsnr`, `star`, `nrms`, `naml`, `lstur`, `npa`).
+- `--debug`: Enable debug mode with minimal data for verification.
+
+### Evaluation
+The evaluation suite provides retrieval metrics (AUC, MRR, nDCG@k) and sparsity analysis.
 
 ```bash
-# MIND
-python src/data_preprocess_mind.py
-
-
-
-# EBNeRD
-python src/data_preprocess_ebnerd.py --dataset ebnerd
-
+uv run python src/evaluate.py --experiment_name lsnr_baseline --model_type lsnr --dataset mind
 ```
 
-Outputs are written to `data/<dataset>/{train,val,test}/`, including:
-
-- `behaviors_parsed.tsv` (training) and `behaviors_parsed_cold*.tsv` (evaluation cold-threshold slices)
-- `news.tsv` per split limited to referenced articles
-- `user2int.tsv`, `category2int.tsv` shared across splits
-
----
-
-## 4. Configuration & Experiment Management
-
-Experiments are defined in `experiments/*.yaml` and may inherit from `experiments/base.yaml` via the `_base_` key. The loader (`src/config.py`) resolves inheritance, performs type conversions, and exposes:
-
-- `experiment` metadata (name, model, description)
-- `datasets` block with per-dataset hyperparameters
-- `models` block with model-specific settings (including sparsity regularisation for LSNR)
-- `training` block controlling optimisation, evaluation cadence, and cold-threshold selection
-
-To create a new experiment, copy an existing YAML file and adjust the relevant sections. Any YAML string using scientific notation (e.g. `1e-4`) is automatically cast to floats.
-
----
-
-## 5. Training
-
-Training is driven by `src/train.py` and consumes experiment names:
-
+For large-scale ranking, you can dump predictions to JSON:
 ```bash
-
-
-# MIND variant
-python src/train.py lsnr_baseline mind
+uv run python src/evaluate.py --eval_mode dump_predictions --output_path predictions.json
 ```
 
-Key options:
+---
 
-- Positional `experiment`: name of the YAML file in `experiments/`
-- Optional positional `dataset`: defaults to `adressa`
-- Logging: checkpoints saved under `checkpoints/<experiment>_<model>_<dataset>_cold<k>_lr<lr>/`
+## 🛠 Configuration System
 
-LSNR models expose a quadratic lambda warm-up; sparsity settings live in the experiment config under `models.lsnr`.
+The `src/config.py` module handles complex configuration merging:
+- **Inheritance**: Configs can inherit from a base file (e.g., `_base_: base.yaml`).
+- **Dynamic Overrides**: All training hyperparameters can be overridden via CLI flags.
+- **Scientific Notation**: Strings like `1e-4` in YAML are automatically converted to floats.
 
 ---
 
-## 6. Evaluation & Analysis
+## 📝 Citation
 
-### 6.1 CLI entrypoint
+If you find this work useful in your research, please cite:
 
-`src/evaluate.py` offers a consolidated interface that loads checkpoints and runs retrieval metrics over multiple cold thresholds:
-
-```bash
-
-
-# Evaluate NRMS on MIND with a custom checkpoint directory
-python src/evaluate.py nrms --dataset mind --checkpoint-dir checkpoints/my_nrms_run
+```bibtex
+@inproceedings{lsnr2026,
+  title={Reliable and Controllable Learned Sparse News Recommendations for Short-History Users},
+  author={...},
+  booktitle={Proceedings of the SIGIR},
+  year={2026}
+}
 ```
 
-Useful flags:
-
-- `--cold-thresholds`: space-separated list (default `[0, 1, 2, 3, 4, 5]`)
-- `--lr`: select checkpoints trained with a specific learning rate
-- `--batch-size`: override evaluation batch size
-- `--regularization`: select checkpoint by regularization level (e.g., `baseline`)
-
-
-## 7. Extending to New Datasets
-
-To adapt LSNR to a new corpus:
-
-1. Implement a dataset preprocessor producing `news.tsv`, `behaviors.tsv`, and derived mapping files.
-2. Add a dataset configuration entry in `experiments/base.yaml` specifying tokenisation settings (`pretrained_model_name`, word limits, history length).
-3. Update the experiment YAML with the new dataset key and any model overrides.
-4. Reuse `datasets.BaseDataset` (MIND-style).
-
 ---
-
-## 8. Checkpoints & Logging
-
-- Checkpoints retain model/optimizer state and the evaluation step. Only the most recent checkpoint is kept per directory.
-- WandB logs include training loss, regularisation diagnostics, retrieval metrics, and lambda scheduler values when applicable.
-- `utils.save_checkpoint` writes `early_stop_value = -val_auc`; early stopping monitors validation AUC.
-
----
+*This repository is maintained for academic reproducibility and research extension.*

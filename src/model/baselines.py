@@ -8,9 +8,6 @@ from model.base import BaseModel
 from model.layers import AdditiveAttention, MultiHeadSelfAttention, DotProductClickPredictor
 from model.utils import freeze_bert_layers
 
-# ============================================================================
-# NRMS
-# ============================================================================
 
 class NRMSBERT(BaseModel):
     """
@@ -25,23 +22,17 @@ class NRMSBERT(BaseModel):
         self.click_predictor = DotProductClickPredictor()
 
     def forward(self, candidate_news, clicked_news, clicked_news_mask):
-        # Batch process candidate news
         num_candidates = len(candidate_news)
         batch_size = candidate_news[0]['input_ids'].shape[0]
         
-        # Concatenate all candidate news into a single batch
         batched_candidate = {
             'input_ids': torch.cat([news['input_ids'] for news in candidate_news], dim=0),
             'attention_mask': torch.cat([news['attention_mask'] for news in candidate_news], dim=0),
         }
         
-        # Process all candidate news in a single forward pass
         candidate_vecs_batched = self.news_encoder(batched_candidate)
         
-        # Reshape results back to original structure: batch_size, num_candidates, embedding_dim
         candidate_news_vector = candidate_vecs_batched.view(num_candidates, batch_size, -1).transpose(0, 1)
-        
-        # Batch process clicked news
         num_clicked = len(clicked_news)
         
         # Concatenate all clicked news into a single batch
@@ -53,7 +44,6 @@ class NRMSBERT(BaseModel):
         # Process all clicked news in a single forward pass
         clicked_vecs_batched = self.news_encoder(batched_clicked)
         
-        # Reshape results: batch_size, num_clicked, embedding_dim
         clicked_vecs = clicked_vecs_batched.view(num_clicked, batch_size, -1).transpose(0, 1)
         
         # Apply mask
