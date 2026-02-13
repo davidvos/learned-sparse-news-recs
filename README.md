@@ -97,28 +97,3 @@ uv run python src/evaluate.py --eval_mode dump_predictions --output_path predict
 ```
 
 ---
-
-## 🛠 Configuration System
-
-The `src/config.py` module handles complex configuration merging:
-- **Inheritance**: Configs can inherit from a base file (e.g., `_base_: base.yaml`).
-- **Dynamic Overrides**: All training hyperparameters can be overridden via CLI flags.
-- **Scientific Notation**: Strings like `1e-4` in YAML are automatically converted to floats.
-
----
-
-## 📝 Citation
-
-If you find this work useful in your research, please cite:
-
-```bibtex
-@inproceedings{lsnr2026,
-  title={Reliable and Controllable Learned Sparse News Recommendations for Short-History Users},
-  author={...},
-  booktitle={Proceedings of the SIGIR},
-  year={2026}
-}
-```
-
----
-*This repository is maintained for academic reproducibility and research extension.*

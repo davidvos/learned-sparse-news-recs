@@ -173,8 +173,11 @@ cython_debug/
 # .DS_Store files
 .DS_Store
 
-data
+# Data and Checkpoints
+data/*
+!data/.gitkeep
 wandb
-checkpoints/
+checkpoints/*
+!checkpoints/.gitkeep
 zero_shot_data.ipynb
 .vscode/
