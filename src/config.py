@@ -8,7 +8,7 @@ from typing import Any, Dict, Tuple
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """
-    Load YAML configuration with inheritance support and proper type conversion.
+    Load YAML configuration with proper type conversion.
     
     Args:
         config_path: Path to YAML configuration file
@@ -21,31 +21,11 @@ def load_config(config_path: str) -> Dict[str, Any]:
         repo_root = Path(__file__).resolve().parent.parent
         if (repo_root / config_path).exists():
             config_file = repo_root / config_path
-        elif (repo_root / "experiments" / config_path).exists():
-            config_file = repo_root / "experiments" / config_path
         else:
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
     
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
-    
-    if '_base_' in config:
-        base_path = config_file.parent / config['_base_']
-        if not base_path.exists():
-            repo_root = Path(__file__).resolve().parent.parent
-            if (repo_root / config['_base_']).exists():
-                base_path = repo_root / config['_base_']
-            else:
-                 raise FileNotFoundError(f"Base configuration file not found: {base_path}")
-        
-        # Load base configuration
-        with open(base_path, 'r') as f:
-            base_config = yaml.safe_load(f)
-        
-        # Merge configurations (current config overrides base)
-        config = deep_merge(base_config, config)
-        # Remove the _base_ key after merging
-        config.pop('_base_', None)
     
     config = convert_scientific_notation(config)
     
@@ -73,17 +53,6 @@ def convert_scientific_notation(config: Dict[str, Any]) -> Dict[str, Any]:
     return convert_value(config)
 
 
-def deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """Deep merge two dictionaries, with override taking precedence."""
-    result = base.copy()
-    
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    
-    return result
 
 
 def parse_args() -> argparse.Namespace:
@@ -128,15 +97,7 @@ def get_config() -> Tuple[Dict[str, Any], argparse.Namespace]:
         Tuple of (config_dict, params_namespace)
     """
     args = parse_args()
-    config_path = args.config_file
-    
-    try:
-        config = load_config(config_path)
-    except FileNotFoundError:
-        if (Path("experiments") / config_path).exists():
-             config = load_config(str(Path("experiments") / config_path))
-        else:
-            raise
+    config = load_config(args.config_file)
 
     if 'global' not in config: config['global'] = {}
     config['global']['dataset'] = args.dataset

@@ -1,9 +1,7 @@
 # Configuration for Learned Sparse News Recommenders (LSNR).
 #
 # This file collects the shared defaults used by preprocessing, training, and
-# evaluation so that experiments only need to override the pieces they change.
-# All experiment YAML files under `experiments/` inherit from this file via the
-# `_base_` key.
+# evaluation.
 
 # Global settings shared across scripts
 global:

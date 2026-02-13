@@ -9,7 +9,6 @@ To address these bottlenecks, we introduce learned sparse news recommendations (
 ## 📂 Repository Structure
 
 ```text
-├── experiments/      # YAML experiment definitions and model hyperparameters
 ├── src/
 │   ├── data/         # Dataset loaders and preprocessing pipelines
 │   ├── model/        # LSNR, STAR, and baseline (NRMS, NAML, etc.) implementations
@@ -17,7 +16,7 @@ To address these bottlenecks, we introduce learned sparse news recommendations (
 │   ├── evaluate.py   # Comprehensive evaluation and prediction dumping
 │   ├── config.py     # Configuration management and argument parsing
 │   └── utils.py      # Metrics, logging, and checkpointing utilities
-├── config.yaml       # Global defaults and dataset paths
+├── config.yaml       # Central configuration for all models and datasets
 └── pyproject.toml    # Environment and dependency specifications
 ```
 
@@ -85,19 +84,17 @@ Preprocessing generates standardized `behaviors_parsed.tsv` and `news.tsv` files
 
 ---
 
-## 🧪 Running Experiments
-
-Experiments are managed via YAML files in `experiments/`, supporting inheritance and parameter overrides.
 
 ### Training
 To train a model (e.g., LSNR on MIND):
 ```bash
-uv run python src/train.py --config_file experiments/lsnr_baseline.yaml --model_type lsnr --dataset mind
+uv run python src/train.py --model_type lsnr --dataset mind
 ```
 
 **Key Parameters:**
-- `--config_file`: Path to experiment YAML.
 - `--model_type`: Model architecture (`lsnr`, `star`, `nrms`, `naml`, `lstur`, `npa`).
+- `--dataset`: Dataset type (`mind` or `ebnerd`).
+- `--config_file`: Path to a custom YAML configuration (defaults to `config.yaml`).
 - `--debug`: Enable debug mode with minimal data for verification.
 
 ### Evaluation
