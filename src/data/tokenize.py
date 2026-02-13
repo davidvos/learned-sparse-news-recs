@@ -3,8 +3,8 @@ Script to pre-tokenize news content and save as a PyTorch tensor dictionary.
 This avoids on-the-fly tokenization bottlenecks during training.
 
 Usage:
-    python src/tokenize_news.py --dataset mind
-    python src/tokenize_news.py --dataset ebnerd --output data/ebnerd/news_tokenized.pt
+    python src/data/tokenize.py --dataset mind
+    python src/data/tokenize.py --dataset ebnerd --output data/ebnerd/news_tokenized.pt
 """
 import argparse
 import sys

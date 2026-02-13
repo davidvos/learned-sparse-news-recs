@@ -2,7 +2,7 @@
 
 Learned sparse retrieval (LSR) offers efficiency and interpretability advantages over dense retrieval, yet its application to news recommendations has not yet been explored. Current LSR approaches for recommender systems, such as STAR, are ill-suited for news recommendations because they treat a user's historical interaction as a single concatenated query string. This creates two bottlenecks: (i) It discards the sequential nature of news reading behavior, thus failing to capture how user interests shift over time. (ii) It quickly exceeds language model context windows, requiring truncation of user histories, which degrades recommendation quality.
 
-To address these bottlenecks, we introduce learned sparse news recommendations (LSNR). LSNR replaces naive concatenation with a sequential user encoder that processes news articles independently. This approach explicitly models the sequential order of historical interactions and eliminates the context window bottleneck. Experiments on the MIND and EBNeRD benchmarks demonstrate that LSNR significantly outperforms STAR. These findings also hold in short-history settings, where history truncation is not a factor. We benchmark LSNR against state-of-the-art dense news recommenders, showing it remains competitive in standard settings while outperforming dense models in short-history scenarios. 
+To address these bottlenecks, we introduce learned sparse news recommendations (LSNR). LSNR replaces naive concatenation with a sequential user encoder that processes news articles independently. This approach explicitly models the sequential order of historical interactions and eliminates the context window bottleneck. Experiments on the MIND and EBNeRD benchmarks demonstrate that LSNR significantly outperforms STAR. These findings also hold in short-history settings, where history truncation is not a factor. We benchmark LSNR against state-of-the-art dense news recommenders, showing it remains competitive in standard settings while outperforming dense models in short-history scenarios.
 
 ---
 
@@ -46,17 +46,22 @@ LSNR supports the **MIND** (Microsoft News Dataset) and **EBNeRD** datasets.
 
 #### MIND Setup
 ```bash
-# 1. Download and extract MIND (small/large as needed)
-mkdir -p data/mind/{train,val,test}
-# ... download scripts ...
+# 1. Create the base directory
+mkdir -p data/mind_small
 
-# 2. Run preprocessing pipeline
-uv run python src/data_preprocess_mind.py
+# 2. Download and extract MIND-small (train and dev)
+# Unzip should create MINDsmall_train/ and MINDsmall_dev/ inside data/mind_small/
+# You can get the files from: https://msnews.github.io/
+unzip MINDsmall_train.zip -d data/mind_small
+unzip MINDsmall_dev.zip   -d data/mind_small
+
+# 3. Run preprocessing pipeline
+uv run python src/data/preprocess_mind.py
 ```
 
 #### EBNeRD Setup
 ```bash
-uv run python src/data_preprocess_ebnerd.py --dataset ebnerd
+uv run python src/data/preprocess_ebnerd.py --dataset ebnerd
 ```
 
 Pre-tokenizing the news content is highly recommended to avoid bottlenecks during training:
@@ -95,5 +100,3 @@ For large-scale ranking, you can dump predictions to JSON:
 ```bash
 uv run python src/evaluate.py --eval_mode dump_predictions --output_path predictions.json
 ```
-
----
