@@ -14,9 +14,10 @@ from model.layers import AdditiveAttention, MultiHeadSelfAttention, SimilarityAt
 
 
 class NRMSBERT(BaseModel):
-    """
-    NRMS network.
-    Input 1 + K candidate news and a list of user clicked news, produce the click probability.
+    """NRMS (Wu et al., EMNLP-IJCNLP 2019).
+
+    Given 1 + K candidate news and a user's clicked history, produce the click
+    probability for each candidate.
     """
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
@@ -143,9 +144,7 @@ class NRMSBERT(BaseModel):
 # ============================================================================
 
 class NAMLBERT(BaseModel):
-    """
-    NAML network.
-    """
+    """NAML (Wu et al., IJCAI 2019)."""
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
         
@@ -253,9 +252,7 @@ class NAMLBERT(BaseModel):
 # ============================================================================
 
 class LSTURBERT(BaseModel):
-    """
-    LSTUR network.
-    """
+    """LSTUR (An et al., ACL 2019)."""
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
         
@@ -402,9 +399,7 @@ class LSTURBERT(BaseModel):
 # ============================================================================
 
 class NPABERT(BaseModel):
-    """
-    NPA Network
-    """
+    """NPA (Wu et al., KDD 2019)."""
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
         

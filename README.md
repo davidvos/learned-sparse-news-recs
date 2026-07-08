@@ -120,3 +120,15 @@ for dense baselines (NRMS, NAML, LSTUR, NPA).
 uv run python src/benchmark.py --model_type lsnr --dataset mind \
     --experiment_name lsnr_mind_1e-05 --output results.json
 ```
+
+---
+
+## 📚 References
+
+The baseline models are re-implementations of the following works:
+
+- **STAR** — Anna Tigunova, Ghazaleh Haratinezhad Torbati, Andrew Yates, and Gerhard Weikum. 2024. *STAR: Sparse Text Approach for Recommendation.* In Proceedings of the 33rd ACM International Conference on Information and Knowledge Management (CIKM). 4086–4090.
+- **NRMS** — Chuhan Wu, Fangzhao Wu, Suyu Ge, Tao Qi, Yongfeng Huang, and Xing Xie. 2019. *Neural News Recommendation with Multi-Head Self-Attention.* In EMNLP-IJCNLP.
+- **NAML** — Chuhan Wu, Fangzhao Wu, Mingxiao An, Jianqiang Huang, Yongfeng Huang, and Xing Xie. 2019. *Neural News Recommendation with Attentive Multi-View Learning.* In IJCAI.
+- **LSTUR** — Mingxiao An, Fangzhao Wu, Chuhan Wu, Kun Zhang, Zheng Liu, and Xing Xie. 2019. *Neural News Recommendation with Long- and Short-term User Representations.* In ACL.
+- **NPA** — Chuhan Wu, Fangzhao Wu, Mingxiao An, Jianqiang Huang, Yongfeng Huang, and Xing Xie. 2019. *NPA: Neural News Recommendation with Personalized Attention.* In KDD.
