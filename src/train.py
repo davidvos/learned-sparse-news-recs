@@ -1,3 +1,11 @@
+"""Training entry point for news recommendation models.
+
+Builds the dataset and model selected on the command line (see ``config.py``),
+then runs a standard negative-sampling training loop: cross-entropy over the
+sampled candidates plus any model-specific sparsity regularization. Validation
+runs every ``eval_every`` steps drive checkpointing and early stopping, and all
+metrics are logged to Weights & Biases.
+"""
 import sys
 import torch
 import torch.nn as nn
@@ -17,6 +25,7 @@ from data.dataset import BaseDataset, STARDataset
 from evaluate import evaluate_model
 
 def train():
+    """Run the full training loop for the configured model and dataset."""
     config, args = get_config()
     set_seeds(config['global']['seed'])
     device = get_device(args.device)
@@ -58,6 +67,7 @@ def train():
     early_stopping = EarlyStopping(patience=train_cfg.get('early_stopping', {}).get('patience', 5))
     
     step = 0
+    stop = False
     for epoch in range(train_cfg['num_epochs']):
         print(f"Epoch {epoch}")
         for batch in tqdm(dataloader):

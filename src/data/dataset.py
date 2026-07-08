@@ -230,13 +230,18 @@ class BehaviorsDataset(Dataset):
         return item
 
 class BaseDataset(Dataset):
-    """Dataset used during training for MIND-style datasets. Optimized for H100."""
+    """Training dataset for MIND-style datasets.
+
+    Each sample yields a list of candidate articles (with negative sampling) and
+    the user's clicked history, both tokenized. News content is read from a
+    pre-tokenized cache when available and tokenized on the fly otherwise.
+    """
 
     def __init__(self, behaviors_path: str, news_path: str, config: dict, negative_sampling_ratio: int = 0) -> None:
         super().__init__()
 
         self.config = config
-        self.dataset = config["_dataset"]
+        self.dataset = config["global"]["dataset"]
         dataset_cfg = config["datasets"][self.dataset]
         self.dataset_cfg = dataset_cfg
         self.tokenizer = AutoTokenizer.from_pretrained(dataset_cfg["pretrained_model_name"])
@@ -373,7 +378,7 @@ class BaseDataset(Dataset):
         if self.padding_tokenized is None:
             self.padding_tokenized = get_tokens('PADDED_NEWS')
 
-        # --- 2. Candidate Logic (Optimized) ---
+        # --- 2. Candidate articles ---
         candidate_news_ids = str(row.candidate_news).split()
         clicked_labels = [int(x) for x in str(row.clicked).split()]
 
@@ -404,36 +409,9 @@ class BaseDataset(Dataset):
         if not candidate_news_ids:
             candidate_news_ids = ["PADDED_NEWS"]
             clicked_labels = [0]
-        
-        # *** Optimization: Stack Tensors Immediately ***
-        # Instead of returning [Dict, Dict...], return Dict[Tensor(Batch)]
-        # UPDATE: The model expects List[Dict], so we must format it that way or change the model.
-        # Changing the model is risky. Let's return List[Dict] but backed by the same data?
-        # Actually, if we want speed, we should change the model to accept the stacked tensor.
-        # BUT, the quick fix for the user is to return the List[Dict] structure they expect.
-        
-        # ... Wait, the user's manual change ALREADY implemented the stacking in __getitem__.
-        # And their `collate_fn` (which they also modified?) or the default one handles it?
-        # The user's trace shows `LSNR.forward` failing on `candidate_news`.
-        # The trace says: `torch.cat([news['input_ids'] for news in candidate_news], dim=0)`
-        # This implies `candidate_news` is iterable, but the items inside are strings?
-        # "TypeError: string indices must be integers, not 'str'" => `news` is a string.
-        # This means `candidate_news` is a list of strings (likely keys like "input_ids")? 
-        # OR `candidate_news` is a Dictionary, and iterating over it yields keys (strings).
-        
-        # Yes! In the user's modified code, `item["candidate_news"]` is a Dict[str, Tensor].
-        # In `LSNR.forward`, it iterates `for news in candidate_news`.
-        # If `candidate_news` is a Dict, `news` becomes the key (e.g. "input_ids").
-        # Then `news['input_ids']` tries to index the string key "input_ids" with "input_ids" -> TypeError.
-        
-        # FIX: We need to unpack the optimized Dict[Tensor] back into List[Dict] 
-        # OR update the model to handle Dict[Tensor].
-        # Given we want to avoid changing model code if possible, let's unpack in __getitem__ 
-        # or collate.
-        
-        # Actually, let's just make __getitem__ return the List[Dict] structure. 
-        # It's slightly less efficient than passing pure tensors but safe.
-        
+
+        # Return candidates as a List[Dict] of [1, seq_len] tensors, matching the
+        # structure expected by the model forward passes.
         item_candidates = []
         for nid in candidate_news_ids:
             t = get_tokens(nid)
@@ -453,9 +431,7 @@ class BaseDataset(Dataset):
 
         item_clicked_labels = torch.tensor(clicked_labels).long()
 
-        # --- 3. History Logic (Optimized) ---
-        # ... (Same logic for history)
-        
+        # --- 3. Clicked history ---
         history_limit = self.dataset_cfg["num_clicked_news_a_user"]
         clicked_news_ids = str(row.clicked_news).split()[-history_limit:]
 
@@ -535,12 +511,8 @@ class BaseDataset(Dataset):
             diff = max_cands - curr_len
             
             if diff > 0:
-                # Append padding tokens
-                # We reuse self.padding_tokenized, but must clone tensors and ensure dim matches
-                # Note: self.padding_tokenized has [seq_len] tensors if from .pt, or [1, seq_len] if we fixed it?
-                # In __getitem__ we ensured items in list are [1, seq_len].
-                # So we should ensure padding is also [1, seq_len].
-                
+                # Append padding articles, forcing input_ids/attention_mask to
+                # [1, seq_len] so they match the shape produced by __getitem__.
                 pad_token = {}
                 for k, v in self.padding_tokenized.items():
                     if isinstance(v, torch.Tensor):
@@ -575,7 +547,7 @@ class STARDataset(Dataset):
         super().__init__()
         
         self.config = config
-        self.dataset = config["_dataset"]
+        self.dataset = config["global"]["dataset"]
         dataset_cfg = config["datasets"][self.dataset]
         self.dataset_cfg = dataset_cfg
         self.model_cfg = config.get("_model_config", {})
@@ -683,25 +655,17 @@ class STARDataset(Dataset):
 
     def _build_user_text(self, clicked_news_ids: list[str]) -> str:
         """
-        Build user text from clicked news.
-        
-        Selection Strategy:
-        1. If scores available: Select top-k highest scoring articles.
-        2. Fallback: Select most recent interactions.
-        
-        Content: Title + Abstract
+        Build the STAR user query string from clicked news.
+
+        Most recent interactions are added first (Title + Abstract), greedily
+        packing articles until the ``max_user_tokens`` budget is reached.
         """
         if not clicked_news_ids:
             return "[HISTORY]"
 
-        if not clicked_news_ids:
-            return "[HISTORY]"
-
-        # Reverted to Recency-based selection (User Request)
-        # Always select most recent first, regardless of score.
+        # Select most recent interactions first.
         sorted_ids = list(reversed(clicked_news_ids))
 
-            
         # Greedily add articles (Title + Abstract) until limit
         prefix = "[HISTORY] "
         prefix_tokens = len(self.tokenizer.encode(prefix, add_special_tokens=False))
@@ -746,8 +710,7 @@ class STARDataset(Dataset):
                 selected_texts.append(article_text)
                 current_tokens += article_tokens
             else:
-                # If full article doesn't fit, stop (greedy)
-                # Could try to fit just title, but let's keep consistency for now
+                # Skip articles that don't fit within the token budget.
                 continue
                 
         if not selected_texts:

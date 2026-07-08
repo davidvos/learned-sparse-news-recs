@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT))
 
 from config import load_config
-from src.data.dataset import _load_news_df, _load_mapping
+from data.dataset import _load_news_df, _load_mapping
 
 
 def tokenize_news(dataset_name: str, output_path: str | None = None) -> None:

@@ -38,8 +38,8 @@ datasets:
     num_clicked_news_a_user: 50
     num_words_title: 30
     num_words_abstract: 50
-    pretrained_model_name: 'bert-base-uncased'
-    star_pretrained_model_name: "naver/splade-cocondenser-ensembledistil"
+    pretrained_model_name: 'answerdotai/ModernBERT-base'
+    star_pretrained_model_name: 'answerdotai/ModernBERT-base'
     pad_clicked_history: true
     pad_candidate_news: true
     num_categories: 17
@@ -52,8 +52,8 @@ datasets:
     num_words_title: 20
     num_words_abstract: 30
     num_words_body: 50
-    pretrained_model_name: "Maltehb/danish-bert-botxo"
-    star_pretrained_model_name: "Maltehb/danish-bert-botxo"
+    pretrained_model_name: 'jhu-clsp/mmBERT-base'
+    star_pretrained_model_name: 'jhu-clsp/mmBERT-base'
     pad_clicked_history: true
     pad_candidate_news: true
     num_categories: 26

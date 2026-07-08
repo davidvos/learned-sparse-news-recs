@@ -1,10 +1,14 @@
-import argparse
+"""Evaluation and prediction dumping for news recommenders.
+
+Encodes every candidate article into the model's news representation, computes
+per-user vectors from the clicked history, and scores impressions to report
+retrieval metrics (AUC, MRR, nDCG@k) alongside user-vector sparsity. Can also
+dump ranked predictions to JSON for offline scoring.
+"""
 import os
 import sys
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
-from typing import Dict, Any, List, Optional, Tuple, Union
 import numpy as np
 import gc
 import json

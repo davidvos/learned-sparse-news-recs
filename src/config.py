@@ -62,8 +62,8 @@ def parse_args() -> argparse.Namespace:
     # Core arguments
     parser.add_argument("--model_type", type=str, default="nrms", 
                         help="Model type (nrms, naml, lstur, lsnr, star, npa)")
-    parser.add_argument("--dataset", type=str, default="mind", 
-                        help="Dataset type (mind)")
+    parser.add_argument("--dataset", type=str, default="mind",
+                        help="Dataset type (mind, ebnerd)")
     parser.add_argument("--config_file", type=str, default="config.yaml", 
                         help="Path to configuration file. Can be a full path or filename in experiments/")
     

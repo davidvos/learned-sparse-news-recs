@@ -12,8 +12,9 @@ To address these bottlenecks, we introduce learned sparse news recommendations (
 ├── src/
 │   ├── data/         # Dataset loaders and preprocessing pipelines
 │   ├── model/        # LSNR, STAR, and baseline (NRMS, NAML, etc.) implementations
-│   ├── train.py      # Main training entry point (procedural)
-│   ├── evaluate.py   # Comprehensive evaluation and prediction dumping
+│   ├── train.py      # Main training entry point
+│   ├── evaluate.py   # Retrieval evaluation and prediction dumping
+│   ├── benchmark.py  # Index size and retrieval-latency benchmarking
 │   ├── config.py     # Configuration management and argument parsing
 │   └── utils.py      # Metrics, logging, and checkpointing utilities
 ├── config.yaml       # Central configuration for all models and datasets
@@ -107,4 +108,15 @@ uv run python src/evaluate.py --experiment_name lsnr_baseline --model_type lsnr 
 For large-scale ranking, you can dump predictions to JSON:
 ```bash
 uv run python src/evaluate.py --eval_mode dump_predictions --output_path predictions.json
+```
+
+### Efficiency Benchmarking
+`benchmark.py` measures index size and per-query retrieval latency, building a
+[Seismic](https://github.com/TusKANNy/seismic) inverted index for sparse models
+(LSNR, STAR) and a [FAISS](https://github.com/facebookresearch/faiss) HNSW index
+for dense baselines (NRMS, NAML, LSTUR, NPA).
+
+```bash
+uv run python src/benchmark.py --model_type lsnr --dataset mind \
+    --experiment_name lsnr_mind_1e-05 --output results.json
 ```

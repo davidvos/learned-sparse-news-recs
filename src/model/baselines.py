@@ -1,12 +1,16 @@
+"""Dense neural news-recommendation baselines (NRMS, NAML, LSTUR, NPA).
+
+Each baseline reuses a frozen/partially-frozen pre-trained language model as the
+token encoder and adds a model-specific news/user encoder on top.
+"""
 import torch
 import torch.nn as nn
-from transformers import AutoModel
+import torch.nn.functional as F
 import pandas as pd
 from pathlib import Path
 
 from model.base import BaseModel
-from model.layers import AdditiveAttention, MultiHeadSelfAttention, DotProductClickPredictor
-from model.utils import freeze_bert_layers
+from model.layers import AdditiveAttention, MultiHeadSelfAttention, SimilarityAttention, DotProductClickPredictor
 
 
 class NRMSBERT(BaseModel):
@@ -98,20 +102,8 @@ class NRMSBERT(BaseModel):
             word_length = word_mask.sum(dim=1).to(self.device).long()
             
             news_vector = self.plm(input_ids=input_ids, attention_mask=word_mask).last_hidden_state
-            
+
             residual = news_vector
-            # Pass length for masking if MultiHeadSelfAttention supports it, else ignore
-            # Assuming our new layers.py implementation supports it based on previous view
-            # If not, we can adjust. The implementation I wrote supports it.
-            # However, need to be careful with argument mapping.
-            # My layers.py MultiHeadSelfAttention.forward takes 'length'
-            # But the original code might have passed kwargs differently.
-            # Checking layers.py call again: yes, forward(self, x, length=None)
-            
-            # Need to reshape mask/lengths appropriately for attention
-            # The layers.py implementation uses length to create a mask.
-            # Let's ensure compatibility.
-            
             news_vector = self.multihead_self_attention(news_vector, length=word_length)
             news_vector = self.dropout(news_vector + residual)
             news_vector = self.layer_norm(news_vector)
@@ -235,27 +227,14 @@ class NAMLBERT(BaseModel):
             title_emb = title_emb.transpose(1, 2) # [batch, emb, seq]
             title_conv = F.relu(self.title_conv(title_emb)).transpose(1, 2) # [batch, seq, filters]
             title_vec = self.additive_attention(title_conv, mask=title_mask)
-            
-            # Abstract (if available, mostly unused in simplified version but kept for structure)
-            # Assuming simplified input structure where we might not have abstract passed as separate key 
-            # or relying on how tokenizer packs it. Original code had separate abstract key.
-            # For this refactor, I will simplify and assume mostly title or robust handling if abstract is missing
-            # But strictly following original logic:
-            # If abstract keys exist...
-            # To be safe and minimal:
+
+            # Combine the title view with the category view via additive attention.
             final_vec = title_vec
-            
-            # Category
             if 'category' in news:
                 cat = news['category'].to(self.device)
                 cat_emb = self.category_embedding(cat)
                 cat_vec = F.relu(self.category_dense(cat_emb))
-                # Combine (simple average or attention? Original NAML uses attention over views)
-                # Simplified: just return title for now to match NRMS-like setup if views missing, 
-                # but NAML is multi-view.
-                # Let's stack views and attend.
-                views = [title_vec, cat_vec]
-                views_stack = torch.stack(views, dim=1) # [batch, 2, filters]
+                views_stack = torch.stack([title_vec, cat_vec], dim=1)  # [batch, 2, filters]
                 final_vec = self.additive_attention(views_stack)
 
             return final_vec
@@ -421,8 +400,6 @@ class LSTURBERT(BaseModel):
 # ============================================================================
 # NPA
 # ============================================================================
-
-from model.layers import SimilarityAttention
 
 class NPABERT(BaseModel):
     """
