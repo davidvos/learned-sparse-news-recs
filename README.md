@@ -24,15 +24,11 @@ To address both bottlenecks, we introduce **Learned Sparse News Recommendations 
 │   ├── train.py                 # Training entry point
 │   ├── evaluate.py              # Retrieval evaluation and prediction export
 │   ├── benchmark.py             # Index size and retrieval latency benchmarking
-│   ├── inspect_user.py          # Profile inspection helper
-│   ├── find_good_profile.py     # Profile ranking helper
 │   ├── config.py                # Configuration loading and CLI parsing
 │   └── utils.py                 # Metrics, checkpointing, and logging utilities
 ├── scripts/
 │   ├── train_lsnr.sh            # Train LSNR (recommended hyperparameters)
-│   ├── train_star.sh            # Train STAR baseline
-│   ├── eval_ablation_*.sh       # Ablation evaluation scripts
-│   └── train_*_only_*.sh        # Pathway ablation training scripts
+│   └── train_star.sh            # Train STAR baseline
 ├── plots/                       # Generated result figures
 ├── config.yaml                  # Central configuration for all models and datasets
 ├── pyproject.toml               # Project metadata and dependencies
