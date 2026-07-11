@@ -1,4 +1,16 @@
-"""Simple configuration management for news recommendation training."""
+"""Configuration loading and CLI argument parsing.
+
+Provides a two-layer configuration system:
+
+1. **YAML defaults** — loaded from ``config.yaml`` (or a path given via
+   ``--config_file``).  Contains dataset paths, model hyperparameters,
+   training schedule, and logging settings.
+2. **CLI overrides** — any command-line flag (e.g. ``--lambda_n 0.01``)
+   takes precedence over the YAML value for that key.
+
+The main entry point is :func:`get_config`, which returns the merged
+configuration dictionary together with the parsed argument namespace.
+"""
 import argparse
 import os
 import yaml
@@ -62,8 +74,8 @@ def parse_args() -> argparse.Namespace:
     # Core arguments
     parser.add_argument("--model_type", type=str, default="nrms", 
                         help="Model type (nrms, naml, lstur, lsnr, star, npa)")
-    parser.add_argument("--dataset", type=str, default="mind",
-                        help="Dataset type (mind, ebnerd)")
+    parser.add_argument("--dataset", type=str, default="mind", 
+                        help="Dataset type (mind)")
     parser.add_argument("--config_file", type=str, default="config.yaml", 
                         help="Path to configuration file. Can be a full path or filename in experiments/")
     
@@ -74,6 +86,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--experiment_name", type=str, default=None, help="Experiment name override")
     parser.add_argument("--device", type=str, default="auto", help="Device preference (auto, cuda, mps, cpu)")
     parser.add_argument("--cold_threshold", type=int, default=None, help="Cold start threshold override")
+    parser.add_argument("--lambda_u", type=float, default=None, help="FLOPS lambda_u override for user vectors")
+    parser.add_argument("--lambda_n", type=float, default=None, help="FLOPS lambda_n override for candidate news")
+    parser.add_argument("--lambda_history", type=float, default=None, help="FLOPS lambda_history override for history news")
+    parser.add_argument("--topk_sparsity_queries", type=int, default=None, help="Top-K user query sparsity limit override")
+    parser.add_argument("--user_aggregation", type=str, default=None, help="User aggregation variant (attention, average, max)")
+    parser.add_argument("--use_position_embeddings", action="store_true", help="Enable learned positional embeddings in user encoder")
+    parser.add_argument("--user_sparsity_type", type=str, default=None, choices=["flops", "l1"], help="Regularization type for user vector (flops, l1)")
+    parser.add_argument("--user_pathway", type=str, default=None, choices=["both", "sparse", "dense"], help="User encoder pathway ablation (both, sparse, dense)")
     
     # Evaluation specific
     parser.add_argument("--eval_mode", type=str, default="retrieval", choices=["retrieval", "dump_predictions"], help="Evaluation mode")
@@ -114,6 +134,25 @@ def get_config() -> Tuple[Dict[str, Any], argparse.Namespace]:
         config['training']['learning_rate'] = args.lr
     if args.cold_threshold is not None:
         config['training']['cold_threshold'] = args.cold_threshold
+    if args.lambda_u is not None:
+        config['models'][args.model_type]['lambda_u'] = args.lambda_u
+    if args.lambda_n is not None:
+        config['models'][args.model_type]['lambda_n'] = args.lambda_n
+    if args.lambda_history is not None:
+        config['models'][args.model_type]['lambda_history'] = args.lambda_history
+    if args.topk_sparsity_queries is not None:
+        config['models'][args.model_type]['topk_sparsity_queries'] = args.topk_sparsity_queries
+    if args.user_aggregation is not None:
+        agg = args.user_aggregation.lower()
+        if agg not in ['attention', 'average', 'weighted_sum', 'mean', 'max', 'max_pooling', 'decay', 'temporal_decay']:
+            raise ValueError(f"Invalid user aggregation method: {args.user_aggregation}")
+        config['models'][args.model_type]['user_aggregation'] = agg
+    if args.use_position_embeddings:
+        config['models'][args.model_type]['use_position_embeddings'] = True
+    if args.user_sparsity_type is not None:
+        config['models'][args.model_type]['user_sparsity_type'] = args.user_sparsity_type
+    if args.user_pathway is not None:
+        config['models'][args.model_type]['user_pathway'] = args.user_pathway
         
     if 'experiment' not in config:
         config['experiment'] = {}
@@ -134,6 +173,7 @@ def get_config() -> Tuple[Dict[str, Any], argparse.Namespace]:
     if args.debug:
         config['training']['num_epochs'] = 1
         config['training']['batch_size'] = 2
+        config['global']['debug_mode'] = True
         config['experiment']['name'] += "_debug"
         print("!! DEBUG MODE ENABLED !!")
 

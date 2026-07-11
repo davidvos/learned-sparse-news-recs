@@ -1,3 +1,9 @@
+"""Shared layers for neural news recommenders.
+
+Provides common building blocks like Additive Attention (used in NAML/NPA),
+Multi-Head Self-Attention (used in NRMS and LSNR's dense pathway), and
+a unified Dot Product Click Predictor.
+"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -65,11 +71,11 @@ class MultiHeadSelfAttention(nn.Module):
         self.n_head = n_head
         self.head_dim = d_model // n_head
         
-        self.w_q = nn.Linear(d_model, d_model)
-        self.w_k = nn.Linear(d_model, d_model)
-        self.w_v = nn.Linear(d_model, d_model)
+        self.W_Q = nn.Linear(d_model, d_model)
+        self.W_K = nn.Linear(d_model, d_model)
+        self.W_V = nn.Linear(d_model, d_model)
         
-        self.w_o = nn.Linear(d_model, d_model)
+        self.W_O = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
         self.device = device
 
@@ -77,9 +83,9 @@ class MultiHeadSelfAttention(nn.Module):
         # x: [batch, seq, d_model]
         batch_size, seq_len, _ = x.size()
         
-        Q = self.w_q(x).view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1, 2)
-        K = self.w_k(x).view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1, 2)
-        V = self.w_v(x).view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1, 2)
+        Q = self.W_Q(x).view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1, 2)
+        K = self.W_K(x).view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1, 2)
+        V = self.W_V(x).view(batch_size, seq_len, self.n_head, self.head_dim).transpose(1, 2)
         
         # scores: [batch, n_head, seq, seq]
         scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim ** 0.5)
@@ -96,7 +102,7 @@ class MultiHeadSelfAttention(nn.Module):
         out = torch.matmul(attn, V) # [batch, n_head, seq, head_dim]
         out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
         
-        return self.w_o(out)
+        return self.W_O(out)
 
 class SimilarityAttention(nn.Module):
     """

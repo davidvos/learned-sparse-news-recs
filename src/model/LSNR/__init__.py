@@ -1,3 +1,11 @@
+"""LSNR: Learned Sparse News Recommendations with Attentive User Modeling.
+
+Provides the core `LSNR` model architecture. The model encodes news with a 
+`NewsEncoder` into semantic dense vectors and exact sparse lexical vectors.
+The `UserEncoder` combines user interaction history using attention to
+produce a final learned sparse profile. Includes sparsity regularisation
+strategies (L1, FLOPS) to enforce efficient downstream retrieval.
+"""
 import torch
 import torch.nn as nn
 from model.base import BaseModel
@@ -43,6 +51,8 @@ class LSNR(BaseModel):
         # Regularization Hyperparameters
         self.target_lambda_n = float(model_config.get('lambda_n', 0.0))  # For candidate news
         self.target_lambda_history = float(model_config.get('lambda_history', model_config.get('lambda_n', 0.0)))  # For history news
+        self.target_lambda_u = float(model_config.get('lambda_u', 0.0))  # For user vectors
+        self.user_sparsity_type = model_config.get('user_sparsity_type', 'flops')
         self.use_history_length_scaling = bool(model_config.get('use_history_length_scaling', True))
         
         # Max history length for scaling
@@ -128,7 +138,10 @@ class LSNR(BaseModel):
         expanded_mask = mask_bt.unsqueeze(-1)
         dense_clicked_vecs = dense_clicked_vecs * expanded_mask
         masked_sparse_clicked = sparse_clicked_vecs * expanded_mask
-        user_vec = self.user_encoder(dense_clicked_vecs, masked_sparse_clicked, mask=mask_bt)
+        if self.user_sparsity_type == 'l1':
+            user_vec, user_sparse_proj = self.user_encoder(dense_clicked_vecs, masked_sparse_clicked, mask=mask_bt, return_proj=True)
+        else:
+            user_vec = self.user_encoder(dense_clicked_vecs, masked_sparse_clicked, mask=mask_bt)
         
         current_lambda_n = self.lambda_scheduler.get_lambda_values()
         masked_sparse_history = sparse_clicked_vecs * expanded_mask
@@ -147,32 +160,53 @@ class LSNR(BaseModel):
         # Calculate FLOPS regularization
         candidate_flops_reg = self._calculate_flops_regularizer(weighted_candidate_vecs)
         history_news_flops_reg = self._calculate_flops_regularizer(weighted_history_vecs)
+        
+        if self.user_sparsity_type == 'l1':
+            # Compute L1 norm on the projected user representation, or final user vector if sparse-only
+            reg_target = user_vec if self.user_encoder.user_pathway == 'sparse' else user_sparse_proj
+            user_sparse_reg = torch.sum(reg_target, dim=-1).mean()
+            user_weighted = self.target_lambda_u * user_sparse_reg
+            user_flops_reg = torch.tensor(0.0, device=self.device)
+        else:
+            user_flops_reg = self._calculate_flops_regularizer(user_vec)
+            user_weighted = self.target_lambda_u * user_flops_reg
 
-        # Calculate weighted terms - history uses separate lambda
+        # Calculate weighted terms
         candidate_weighted = current_lambda_n * candidate_flops_reg
         history_news_weighted = self.target_lambda_history * history_news_flops_reg
-        
-        # Total regularization (no user regularizer)
-        total_reg = candidate_weighted + history_news_weighted
+
+        total_reg = candidate_weighted + history_news_weighted + user_weighted
         
         # Compute click prediction (Dot product of Sparse User & Sparse Candidate)
         # Apply learnable temperature scaling
         click_prob = self.click_predictor(sparse_candidate_vecs, user_vec) / self.temperature
         
+        # Compute NNZ metrics for logging
+        with torch.no_grad():
+            avg_candidate_nnz = (sparse_cand_batched > 0).float().sum(dim=-1).mean().item()
+            avg_user_nnz = (user_vec > 0).float().sum(dim=-1).mean().item()
+            if self.user_sparsity_type == 'l1':
+                avg_user_proj_nnz = (user_sparse_proj > 0).float().sum(dim=-1).mean().item()
+
         reg_info = {
             'total': total_reg,
             'candidate_flops': candidate_flops_reg,
             'history_news_flops': history_news_flops_reg,
-            'user_flops': torch.tensor(0.0),  # No longer regularized
+            'user_flops': user_flops_reg,
             'candidate_weighted': candidate_weighted,
             'history_news_weighted': history_news_weighted,
-            'user_weighted': torch.tensor(0.0), # No longer regularized
+            'user_weighted': user_weighted,
             'current_lambda_n': current_lambda_n,
             'current_lambda_history': self.target_lambda_history,
-            'current_lambda_u': 0.0,
+            'current_lambda_u': self.target_lambda_u,
             'avg_history_scaling': history_scaling.mean().item() if self.use_history_length_scaling else 1.0,
             'avg_history_length': history_lengths.mean().item() if self.use_history_length_scaling else mask_bt.sum(dim=1).float().mean().item(),
+            'avg_candidate_nnz': avg_candidate_nnz,
+            'avg_user_nnz': avg_user_nnz,
         }
+        if self.user_sparsity_type == 'l1':
+            reg_info['user_l1'] = user_sparse_reg
+            reg_info['avg_user_proj_nnz'] = avg_user_proj_nnz
 
         return click_prob, reg_info
 
@@ -185,7 +219,7 @@ class LSNR(BaseModel):
         sparse_vec, dense_vec = self.news_encoder(news)
         return sparse_vec, dense_vec
 
-    def get_user_vector(self, input_data, mask=None):
+    def get_user_vector(self, input_data, mask=None, return_dense=False):
         """
         Generates user vector. 
         Args:
@@ -222,7 +256,7 @@ class LSNR(BaseModel):
             if mask.dim() == 1:
                 mask = mask.unsqueeze(0)
         
-        return self.user_encoder(dense_vecs, sparse_vecs, mask=mask)
+        return self.user_encoder(dense_vecs, sparse_vecs, mask=mask, return_dense=return_dense)
 
     def get_prediction(self, news_vector, user_vector):
         """

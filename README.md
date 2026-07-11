@@ -2,133 +2,202 @@
 
 Current learned sparse approaches for recommender systems, such as STAR, represent a user by concatenating their interaction history into a single query string. For news, this creates two bottlenecks: concatenation collapses a user's distinct reading interests into one flat query, and, because news articles are long-form text, concatenating several news articles quickly overruns the context window of the language model used as backbone and forces quality-degrading truncation.
 
-To address both bottlenecks, we introduce learned sparse news recommendations (LSNR). LSNR encodes each article independently and constructs a sparse user vector by combining learned, attention-based weighting of the per-article sparse representations with a dense-projected expansion at the user level. Experiments on the MIND and EBNeRD datasets show that LSNR significantly outperforms STAR, with these gains holding even in short-history settings where truncation is not a factor. Compared to state-of-the-art dense recommenders, LSNR is competitive in standard settings and it outperforms them when the user history is short. An ablation of the user encoder confirms that learned attention-based aggregation outperforms simpler pooling alternatives. Beyond effectiveness, an additional advantage of LSNR is that it serves from an index an order of magnitude smaller than an uncompressed dense baseline.
+To address both bottlenecks, we introduce **Learned Sparse News Recommendations (LSNR)**. LSNR encodes each article independently and constructs a sparse user vector by combining learned, attention-based weighting of the per-article sparse representations with a dense-projected expansion at the user level. Experiments on the MIND and EBNeRD datasets show that LSNR significantly outperforms STAR, with these gains holding even in short-history settings where truncation is not a factor. Compared to state-of-the-art dense recommenders, LSNR is competitive in standard settings and outperforms them when the user history is short. An ablation of the user encoder confirms that learned attention-based aggregation outperforms simpler pooling alternatives. Beyond effectiveness, LSNR serves from an index an order of magnitude smaller than an uncompressed dense baseline.
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```text
 ├── src/
-│   ├── data/         # Dataset loaders and preprocessing pipelines
-│   ├── model/        # LSNR, STAR, and baseline (NRMS, NAML, etc.) implementations
-│   ├── train.py      # Main training entry point
-│   ├── evaluate.py   # Retrieval evaluation and prediction dumping
-│   ├── benchmark.py  # Index size and retrieval-latency benchmarking
-│   ├── config.py     # Configuration management and argument parsing
-│   └── utils.py      # Metrics, logging, and checkpointing utilities
-├── config.yaml       # Central configuration for all models and datasets
-└── pyproject.toml    # Environment and dependency specifications
+│   ├── data/
+│   │   ├── dataset.py           # Dataset loaders for training and evaluation
+│   │   ├── preprocess_mind.py   # MIND preprocessing pipeline
+│   │   ├── preprocess_ebnerd.py # EBNeRD preprocessing pipeline
+│   │   └── tokenize.py          # Pre-tokenization for faster training
+│   ├── model/
+│   │   ├── LSNR/                # LSNR news encoder, user encoder, and model
+│   │   ├── STAR/                # STAR sparse bi-encoder baseline
+│   │   ├── baselines.py         # Dense baselines: NRMS, NAML, LSTUR, NPA
+│   │   ├── base.py              # Abstract base model
+│   │   └── layers.py            # Shared attention and prediction layers
+│   ├── train.py                 # Training entry point
+│   ├── evaluate.py              # Retrieval evaluation and prediction export
+│   ├── benchmark.py             # Index size and retrieval latency benchmarking
+│   ├── demo_pipeline.py         # End-to-end demo: train → eval → latency
+│   ├── inspect_user.py          # Profile inspection helper
+│   ├── find_good_profile.py     # Profile ranking helper
+│   ├── config.py                # Configuration loading and CLI parsing
+│   └── utils.py                 # Metrics, checkpointing, and logging utilities
+├── scripts/
+│   ├── train_lsnr.sh            # Train LSNR (recommended hyperparameters)
+│   ├── train_star.sh            # Train STAR baseline
+│   ├── eval_ablation_*.sh       # Ablation evaluation scripts
+│   └── train_*_only_*.sh        # Pathway ablation training scripts
+├── plots/                       # Generated result figures
+├── config.yaml                  # Central configuration for all models and datasets
+├── pyproject.toml               # Project metadata and dependencies
+└── LICENSE                      # MIT License
 ```
 
 ---
 
-## 🚀 Getting Started
+## Requirements
+
+The codebase requires **Python 3.10+**. Dependencies are managed via `uv`, but standard `pip` can also be used. Key dependencies include:
+- `torch`
+- `transformers`
+- `pyseismic-lsr` (for fast sparse retrieval)
+- `faiss-cpu` (for dense baselines)
+- `wandb` (for experiment tracking)
+
+---
+
+## Getting Started
 
 ### 1. Environment Setup
-The codebase requires Python 3.10+ and uses `uv` for dependency management.
+
+Using `uv` for dependency management:
 
 ```bash
-# Install dependencies
 uv sync
-
-# Activate environment
 source .venv/bin/activate
 ```
 
-Logging is integrated with [Weights & Biases](https://wandb.ai/). Ensure you are logged in:
+Logging is integrated with [Weights & Biases](https://wandb.ai/):
+
 ```bash
 uv run wandb login
 ```
 
-### 2. Data preprocessing
+### 2. Data Preprocessing
+
 LSNR supports the **MIND** and **EBNeRD** datasets.
 
-#### MIND Setup
+#### MIND
+
 ```bash
-# 1. Create the base directory
 mkdir -p data/mind_small
 
-# 2. Download and extract MIND-small (train and dev)
-# Unzip should create MINDsmall_train/ and MINDsmall_dev/ inside data/mind_small/
-# You can get the files from: https://msnews.github.io/
+# Download MINDsmall_train.zip and MINDsmall_dev.zip from https://msnews.github.io/
 unzip MINDsmall_train.zip -d data/mind_small
 unzip MINDsmall_dev.zip   -d data/mind_small
 
-# 3. Run preprocessing pipeline
 uv run python src/data/preprocess_mind.py
 ```
 
-#### EBNeRD Setup
+#### EBNeRD
+
 ```bash
-# 1. Create the directory structure
 mkdir -p data/ebnerd/{train,validation}
 
-# 2. Place the raw Parquet files
-# - data/ebnerd/articles.parquet
-# - data/ebnerd/train/behaviors.parquet
-# - data/ebnerd/train/history.parquet
-# - data/ebnerd/validation/behaviors.parquet
-# - data/ebnerd/validation/history.parquet
+# Place the raw Parquet files:
+#   data/ebnerd/articles.parquet
+#   data/ebnerd/train/behaviors.parquet
+#   data/ebnerd/train/history.parquet
+#   data/ebnerd/validation/behaviors.parquet
+#   data/ebnerd/validation/history.parquet
 
-# 3. Run preprocessing pipeline
 uv run python src/data/preprocess_ebnerd.py
 ```
 
-Pre-tokenizing the news content is highly recommended to avoid bottlenecks during training:
+Pre-tokenizing the news corpus is strongly recommended to avoid I/O bottlenecks during training:
 
 ```bash
 uv run python src/data/tokenize.py --dataset mind
 ```
 
-Preprocessing generates standardized `behaviors_parsed.tsv` and `news.tsv` files, while the tokenization script produces `news_tokenized.pt` for accelerated training.
+Preprocessing produces standardized `behaviors_parsed.tsv` and `news.tsv` files; tokenization produces `news_tokenized.pt` for accelerated data loading.
 
 ---
 
+### 3. Training
 
-### Training
-To train a model (e.g., LSNR on MIND):
 ```bash
-uv run python src/train.py --model_type lsnr --dataset mind
+# LSNR (paper hyperparameters)
+bash scripts/train_lsnr.sh mind      # or ebnerd
+
+# STAR baseline
+bash scripts/train_star.sh mind
+
+# Any baseline (NRMS, NAML, LSTUR, NPA)
+uv run python src/train.py --model_type nrms --dataset mind
 ```
 
-**Key Parameters:**
-- `--model_type`: Model architecture (`lsnr`, `star`, `nrms`, `naml`, `lstur`, `npa`).
-- `--dataset`: Dataset type (`mind` or `ebnerd`).
-- `--config_file`: Path to a custom YAML configuration (defaults to `config.yaml`).
-- `--debug`: Enable debug mode with minimal data for verification.
+Key CLI flags (see `src/train.py --help` for the full list):
 
-### Evaluation
-The evaluation suite provides retrieval metrics (AUC, MRR, nDCG@k) and sparsity analysis.
+| Flag | Description |
+|---|---|
+| `--model_type` | `lsnr`, `star`, `nrms`, `naml`, `lstur`, `npa` |
+| `--dataset` | `mind` or `ebnerd` |
+| `--lambda_n` | FLOPS regularizer weight for candidate news |
+| `--lambda_history` | FLOPS regularizer weight for history news |
+| `--lambda_u` | Regularizer weight for user vectors |
+| `--topk_sparsity_queries` | Hard top-k constraint on user query vectors |
+| `--user_aggregation` | History aggregation: `attention`, `average`, `max`, `decay` |
+| `--debug` | Run with minimal data for a quick sanity check |
+
+---
+
+### 4. Evaluation
 
 ```bash
-uv run python src/evaluate.py --experiment_name lsnr_baseline --model_type lsnr --dataset mind
+uv run python src/evaluate.py \
+    --experiment_name lsnr_mind \
+    --model_type lsnr \
+    --dataset mind \
+    --split test
 ```
 
-For large-scale ranking, you can dump predictions to JSON:
-```bash
-uv run python src/evaluate.py --eval_mode dump_predictions --output_path predictions.json
-```
-
-### Efficiency Benchmarking
-`benchmark.py` measures index size and per-query retrieval latency, building a
-[Seismic](https://github.com/TusKANNy/seismic) inverted index for sparse models
-(LSNR, STAR) and a [FAISS](https://github.com/facebookresearch/faiss) HNSW index
-for dense baselines (NRMS, NAML, LSTUR, NPA).
+To export ranked predictions for submission:
 
 ```bash
-uv run python src/benchmark.py --model_type lsnr --dataset mind \
-    --experiment_name lsnr_mind_1e-05 --output results.json
+uv run python src/evaluate.py \
+    --eval_mode dump_predictions \
+    --output_path predictions.json \
+    --model_type lsnr \
+    --dataset mind
 ```
 
 ---
 
-## 📚 References
+### 5. Efficiency Benchmarking
 
-The baseline models are re-implementations of the following works:
+Measures index size and retrieval latency (Seismic for sparse models, FAISS HNSW for dense models):
 
-- **STAR** — Anna Tigunova, Ghazaleh Haratinezhad Torbati, Andrew Yates, and Gerhard Weikum. 2024. *STAR: Sparse Text Approach for Recommendation.* In Proceedings of the 33rd ACM International Conference on Information and Knowledge Management (CIKM). 4086–4090.
-- **NRMS** — Chuhan Wu, Fangzhao Wu, Suyu Ge, Tao Qi, Yongfeng Huang, and Xing Xie. 2019. *Neural News Recommendation with Multi-Head Self-Attention.* In EMNLP-IJCNLP.
-- **NAML** — Chuhan Wu, Fangzhao Wu, Mingxiao An, Jianqiang Huang, Yongfeng Huang, and Xing Xie. 2019. *Neural News Recommendation with Attentive Multi-View Learning.* In IJCAI.
-- **LSTUR** — Mingxiao An, Fangzhao Wu, Chuhan Wu, Kun Zhang, Zheng Liu, and Xing Xie. 2019. *Neural News Recommendation with Long- and Short-term User Representations.* In ACL.
-- **NPA** — Chuhan Wu, Fangzhao Wu, Mingxiao An, Jianqiang Huang, Yongfeng Huang, and Xing Xie. 2019. *NPA: Neural News Recommendation with Personalized Attention.* In KDD.
+```bash
+uv run python src/benchmark.py \
+    --model_type lsnr \
+    --dataset mind \
+    --experiment_name lsnr_mind \
+    --output results.json
+```
+
+---
+
+### 6. End-to-End Demo
+
+Runs a fast train → eval → latency benchmark in one command (uses debug limits for speed):
+
+```bash
+uv run python src/demo_pipeline.py --model_type lsnr --dataset mind
+```
+
+---
+
+## Citation
+
+If you use this code in your research, please cite:
+
+```bibtex
+@inproceedings{lsnr2025,
+  title={Learned Sparse News Recommendations with Attentive User Modeling},
+  author={Anonymous},
+  booktitle={Proceedings of the Conference},
+  year={2025}
+}
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

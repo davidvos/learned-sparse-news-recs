@@ -1,3 +1,9 @@
+"""Dataset classes and collation utilities for training and evaluation.
+
+Provides the `BaseDataset` for dense baselines and LSNR, and `STARDataset`
+which overrides specific batching logic to support STAR's concatenated text
+format. Handles negative sampling and history padding.
+"""
 import random
 from pathlib import Path
 import os
@@ -230,18 +236,13 @@ class BehaviorsDataset(Dataset):
         return item
 
 class BaseDataset(Dataset):
-    """Training dataset for MIND-style datasets.
-
-    Each sample yields a list of candidate articles (with negative sampling) and
-    the user's clicked history, both tokenized. News content is read from a
-    pre-tokenized cache when available and tokenized on the fly otherwise.
-    """
+    """Dataset used during training for MIND-style datasets. Optimized for H100."""
 
     def __init__(self, behaviors_path: str, news_path: str, config: dict, negative_sampling_ratio: int = 0) -> None:
         super().__init__()
 
         self.config = config
-        self.dataset = config["global"]["dataset"]
+        self.dataset = config["_dataset"]
         dataset_cfg = config["datasets"][self.dataset]
         self.dataset_cfg = dataset_cfg
         self.tokenizer = AutoTokenizer.from_pretrained(dataset_cfg["pretrained_model_name"])
@@ -378,7 +379,7 @@ class BaseDataset(Dataset):
         if self.padding_tokenized is None:
             self.padding_tokenized = get_tokens('PADDED_NEWS')
 
-        # --- 2. Candidate articles ---
+        # --- 2. Candidate Logic (Optimized) ---
         candidate_news_ids = str(row.candidate_news).split()
         clicked_labels = [int(x) for x in str(row.clicked).split()]
 
@@ -409,9 +410,7 @@ class BaseDataset(Dataset):
         if not candidate_news_ids:
             candidate_news_ids = ["PADDED_NEWS"]
             clicked_labels = [0]
-
-        # Return candidates as a List[Dict] of [1, seq_len] tensors, matching the
-        # structure expected by the model forward passes.
+        
         item_candidates = []
         for nid in candidate_news_ids:
             t = get_tokens(nid)
@@ -431,7 +430,6 @@ class BaseDataset(Dataset):
 
         item_clicked_labels = torch.tensor(clicked_labels).long()
 
-        # --- 3. Clicked history ---
         history_limit = self.dataset_cfg["num_clicked_news_a_user"]
         clicked_news_ids = str(row.clicked_news).split()[-history_limit:]
 
@@ -511,8 +509,12 @@ class BaseDataset(Dataset):
             diff = max_cands - curr_len
             
             if diff > 0:
-                # Append padding articles, forcing input_ids/attention_mask to
-                # [1, seq_len] so they match the shape produced by __getitem__.
+                # Append padding tokens
+                # We reuse self.padding_tokenized, but must clone tensors and ensure dim matches
+                # Note: self.padding_tokenized has [seq_len] tensors if from .pt, or [1, seq_len] if we fixed it?
+                # In __getitem__ we ensured items in list are [1, seq_len].
+                # So we should ensure padding is also [1, seq_len].
+                
                 pad_token = {}
                 for k, v in self.padding_tokenized.items():
                     if isinstance(v, torch.Tensor):
@@ -547,7 +549,7 @@ class STARDataset(Dataset):
         super().__init__()
         
         self.config = config
-        self.dataset = config["global"]["dataset"]
+        self.dataset = config["_dataset"]
         dataset_cfg = config["datasets"][self.dataset]
         self.dataset_cfg = dataset_cfg
         self.model_cfg = config.get("_model_config", {})
@@ -655,17 +657,25 @@ class STARDataset(Dataset):
 
     def _build_user_text(self, clicked_news_ids: list[str]) -> str:
         """
-        Build the STAR user query string from clicked news.
-
-        Most recent interactions are added first (Title + Abstract), greedily
-        packing articles until the ``max_user_tokens`` budget is reached.
+        Build user text from clicked news.
+        
+        Selection Strategy:
+        1. If scores available: Select top-k highest scoring articles.
+        2. Fallback: Select most recent interactions.
+        
+        Content: Title + Abstract
         """
         if not clicked_news_ids:
             return "[HISTORY]"
 
-        # Select most recent interactions first.
+        if not clicked_news_ids:
+            return "[HISTORY]"
+
+        # Reverted to Recency-based selection (User Request)
+        # Always select most recent first, regardless of score.
         sorted_ids = list(reversed(clicked_news_ids))
 
+            
         # Greedily add articles (Title + Abstract) until limit
         prefix = "[HISTORY] "
         prefix_tokens = len(self.tokenizer.encode(prefix, add_special_tokens=False))
@@ -710,7 +720,8 @@ class STARDataset(Dataset):
                 selected_texts.append(article_text)
                 current_tokens += article_tokens
             else:
-                # Skip articles that don't fit within the token budget.
+                # If full article doesn't fit, stop (greedy)
+                # Could try to fit just title, but let's keep consistency for now
                 continue
                 
         if not selected_texts:

@@ -1,11 +1,14 @@
-"""
-Preprocessing script for the MIND news recommendation dataset.
+"""Preprocessing script for the MIND news recommendation dataset.
 
-This version constructs validation and test splits by holding out the
-latest periods from the original training behaviors file, following the
-chronological evaluation protocol used in recent recommendation literature.
+Constructs validation and test splits by holding out the latest periods
+from the original training behaviors file, following the chronological
+evaluation protocol used in recent recommendation literature.
 Outputs are saved as tab-separated files ready for model training and
 evaluation.
+
+Usage::
+
+    uv run python src/data/preprocess_mind.py
 """
 from __future__ import annotations
 

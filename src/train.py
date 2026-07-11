@@ -1,10 +1,14 @@
 """Training entry point for news recommendation models.
 
-Builds the dataset and model selected on the command line (see ``config.py``),
-then runs a standard negative-sampling training loop: cross-entropy over the
-sampled candidates plus any model-specific sparsity regularization. Validation
-runs every ``eval_every`` steps drive checkpointing and early stopping, and all
-metrics are logged to Weights & Biases.
+Runs a negative-sampling training loop with cross-entropy loss over sampled
+candidates plus model-specific sparsity regularisation (FLOPS / L1).
+Validation runs every ``eval_every`` steps drive checkpointing and early
+stopping; all metrics are logged to Weights & Biases.
+
+Usage::
+
+    uv run python src/train.py --model_type lsnr --dataset mind
+    uv run python src/train.py --model_type star --dataset mind --debug
 """
 import sys
 import torch
@@ -25,13 +29,13 @@ from data.dataset import BaseDataset, STARDataset
 from evaluate import evaluate_model
 
 def train():
-    """Run the full training loop for the configured model and dataset."""
     config, args = get_config()
     set_seeds(config['global']['seed'])
     device = get_device(args.device)
     
     model, _, _ = load_model_and_checkpoint(args.model_type, args.dataset, config, device, checkpoint_dir=None)
     
+    config['_dataset'] = args.dataset
     ds_cfg = config['datasets'][args.dataset]
     mod_cfg = config['models'][args.model_type]
     train_cfg = config['training']
@@ -53,7 +57,9 @@ def train():
     
     suffix = ""
     if args.model_type == 'lsnr':
-        suffix = f"_ln{mod_cfg.get('lambda_n', 0.0)}_lh{mod_cfg.get('lambda_history', mod_cfg.get('lambda_n', 0.0))}_hls{int(mod_cfg.get('use_history_length_scaling', True))}"
+        user_agg = mod_cfg.get('user_aggregation', 'attention')
+        use_pe = int(mod_cfg.get('use_position_embeddings', False))
+        suffix = f"_ln{mod_cfg.get('lambda_n', 0.0)}_lh{mod_cfg.get('lambda_history', mod_cfg.get('lambda_n', 0.0))}_lu{mod_cfg.get('lambda_u', 0.0)}_hls{int(mod_cfg.get('use_history_length_scaling', True))}_{user_agg}_pe{use_pe}"
     elif args.model_type == 'star':
         suffix = f"_ln{mod_cfg.get('lambda_n', 0.0)}"
 
@@ -67,7 +73,6 @@ def train():
     early_stopping = EarlyStopping(patience=train_cfg.get('early_stopping', {}).get('patience', 5))
     
     step = 0
-    stop = False
     for epoch in range(train_cfg['num_epochs']):
         print(f"Epoch {epoch}")
         for batch in tqdm(dataloader):
@@ -75,8 +80,6 @@ def train():
             if len(batch.get("clicked_news", batch.get("user_input", {}).get("input_ids", []))) == 0: continue
             
             optimizer.zero_grad()
-            
-            # Forward pass
             if args.model_type == "star":
                 out = model(batch["user_input"], batch["candidate_news"], None)
             elif args.model_type in ['lstur', 'npa']:
@@ -101,10 +104,30 @@ def train():
             
             if hasattr(model, 'lambda_scheduler'):
                 model.lambda_scheduler.step()
+                
+            if args.debug and step >= 10:
+                print("\nDebug mode: running evaluation before early exit...")
+                evaluate_model(model, config, device, split='val', prefix=f"cold{train_cfg['cold_threshold']}_")
+                print("Debug mode: training completed (10 steps).")
+                break
             
             # Evaluation
             if step % train_cfg['eval_every'] == 0:
                 metrics = evaluate_model(model, config, device, split='val', prefix=f"cold{train_cfg['cold_threshold']}_")
+                print(f"\nStep {step} Validation Metrics (cold{train_cfg.get('cold_threshold', 0)}):")
+                for k, v in metrics.items():
+                    print(f"  {k}: {v:.4f}")
+                
+                # Also evaluate on cold start 1 if default threshold is not 1
+                if train_cfg.get('cold_threshold', 0) != 1:
+                    orig_threshold = train_cfg.get('cold_threshold', 0)
+                    train_cfg['cold_threshold'] = 1
+                    cold1_metrics = evaluate_model(model, config, device, split='val', prefix="cold1_")
+                    train_cfg['cold_threshold'] = orig_threshold
+                    print(f"Step {step} Validation Metrics (cold1):")
+                    for k, v in cold1_metrics.items():
+                        print(f"  {k}: {v:.4f}")
+                
                 val_score = metrics.get(train_cfg.get('early_stopping', {}).get('monitor', 'ret_auc'), 0.0)
                 
                 es_val = val_score if train_cfg.get('early_stopping', {}).get('mode', 'max') == 'min' else -val_score

@@ -1,7 +1,13 @@
+"""LSNR News Encoder.
+
+Encodes raw news article text into two representations simultaneously:
+a dense semantic vector (for input to the user encoder), and a sparse 
+lexical expansion (for final candidate matching and user profile aggregation).
+"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from model.layers import MultiHeadSelfAttention
+from model.layers import MultiHeadSelfAttention, AdditiveAttention
 
 class NewsEncoder(nn.Module):
     """
@@ -20,18 +26,24 @@ class NewsEncoder(nn.Module):
         num_heads = config.get('num_attention_heads', 16)
         self.mhsa = MultiHeadSelfAttention(self.embedding_dim, n_head=num_heads, device=self.device)
         self.layernorm = nn.LayerNorm(self.embedding_dim)
+        
+        # Category embeddings (to align with checkpoint)
+        self.cat_embedding = nn.Embedding(dataset_config.get('num_categories', 100), 100)
+        self.subcat_embedding = nn.Embedding(dataset_config.get('num_subcategories', 1000), 100)
+        self.category_projection = nn.Linear(200, self.embedding_dim)
+
         self.projection = nn.Linear(self.embedding_dim, self.sparse_dim, bias=False)
         self._init_projection_weights(plm)
 
     def _init_projection_weights(self, plm):
         if self.sparse_dim == plm.config.vocab_size:
-            self.projection.weight = self.plm.cls.predictions.decoder.weight
+            # Tie weights directly to the input word embeddings
+            self.projection.weight = plm.get_input_embeddings().weight
         else:
-            nn.init.xavier_uniform_(self.projection.weight)
-            plm_weight = self.plm.cls.predictions.decoder.weight
-            min_vocab = min(self.sparse_dim, plm.config.vocab_size)
+            # Copy sliced input word embeddings if sparse_dim differs
             with torch.no_grad():
-                self.projection.weight[:min_vocab] = plm_weight[:min_vocab]
+                sliced_weight = plm.get_input_embeddings().weight[:self.sparse_dim].clone()
+                self.projection.weight.copy_(sliced_weight)
 
     def forward(self, news, return_sparse=True):
         inputs = self.plm(

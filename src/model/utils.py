@@ -1,3 +1,7 @@
+"""Model-level utilities.
+
+Provides helper functions for freezing PLM layers during fine-tuning.
+"""
 import torch
 
 def freeze_bert_layers(plm: torch.nn.Module, freeze_layers: int) -> None:

@@ -1,3 +1,8 @@
+"""Abstract base model for neural news recommenders.
+
+Provides the interface that all models (dense and sparse) must implement,
+ensuring consistent behaviour across the training and evaluation scripts.
+"""
 import torch
 import torch.nn as nn
 from abc import abstractmethod

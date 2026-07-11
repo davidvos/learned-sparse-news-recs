@@ -1,23 +1,30 @@
-"""Dense neural news-recommendation baselines (NRMS, NAML, LSTUR, NPA).
+"""Neural dense baseline models.
 
-Each baseline reuses a frozen/partially-frozen pre-trained language model as the
-token encoder and adds a model-specific news/user encoder on top.
+Implementations of four widely-used neural news recommendation baselines:
+
+- **NRMS**: Neural News Recommendation with Multi-Head Self-Attention.
+- **NAML**: Neural News Recommendation with Attentive Multi-View Learning.
+- **LSTUR**: Neural News Recommendation with Long- and Short-term User Representations.
+- **NPA**: Neural News Recommendation with Personalized Attention.
+
+All baselines in this file produce dense user and news vectors, relying on
+FAISS exact MIPS for downstream retrieval evaluation.
 """
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from transformers import AutoModel
 import pandas as pd
 from pathlib import Path
 
 from model.base import BaseModel
-from model.layers import AdditiveAttention, MultiHeadSelfAttention, SimilarityAttention, DotProductClickPredictor
+from model.layers import AdditiveAttention, MultiHeadSelfAttention, DotProductClickPredictor
+from model.utils import freeze_bert_layers
 
 
 class NRMSBERT(BaseModel):
-    """NRMS (Wu et al., EMNLP-IJCNLP 2019).
-
-    Given 1 + K candidate news and a user's clicked history, produce the click
-    probability for each candidate.
+    """
+    NRMS network.
+    Input 1 + K candidate news and a list of user clicked news, produce the click probability.
     """
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
@@ -103,7 +110,7 @@ class NRMSBERT(BaseModel):
             word_length = word_mask.sum(dim=1).to(self.device).long()
             
             news_vector = self.plm(input_ids=input_ids, attention_mask=word_mask).last_hidden_state
-
+            
             residual = news_vector
             news_vector = self.multihead_self_attention(news_vector, length=word_length)
             news_vector = self.dropout(news_vector + residual)
@@ -144,7 +151,9 @@ class NRMSBERT(BaseModel):
 # ============================================================================
 
 class NAMLBERT(BaseModel):
-    """NAML (Wu et al., IJCAI 2019)."""
+    """
+    NAML network.
+    """
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
         
@@ -226,14 +235,19 @@ class NAMLBERT(BaseModel):
             title_emb = title_emb.transpose(1, 2) # [batch, emb, seq]
             title_conv = F.relu(self.title_conv(title_emb)).transpose(1, 2) # [batch, seq, filters]
             title_vec = self.additive_attention(title_conv, mask=title_mask)
-
-            # Combine the title view with the category view via additive attention.
             final_vec = title_vec
+            
+            # Category
             if 'category' in news:
                 cat = news['category'].to(self.device)
                 cat_emb = self.category_embedding(cat)
                 cat_vec = F.relu(self.category_dense(cat_emb))
-                views_stack = torch.stack([title_vec, cat_vec], dim=1)  # [batch, 2, filters]
+                # Combine (simple average or attention? Original NAML uses attention over views)
+                # Simplified: just return title for now to match NRMS-like setup if views missing, 
+                # but NAML is multi-view.
+                # Let's stack views and attend.
+                views = [title_vec, cat_vec]
+                views_stack = torch.stack(views, dim=1) # [batch, 2, filters]
                 final_vec = self.additive_attention(views_stack)
 
             return final_vec
@@ -252,7 +266,9 @@ class NAMLBERT(BaseModel):
 # ============================================================================
 
 class LSTURBERT(BaseModel):
-    """LSTUR (An et al., ACL 2019)."""
+    """
+    LSTUR network.
+    """
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
         
@@ -398,8 +414,12 @@ class LSTURBERT(BaseModel):
 # NPA
 # ============================================================================
 
+from model.layers import SimilarityAttention
+
 class NPABERT(BaseModel):
-    """NPA (Wu et al., KDD 2019)."""
+    """
+    NPA Network
+    """
     def __init__(self, model_config, dataset_config, device):
         super().__init__(model_config, dataset_config, device)
         

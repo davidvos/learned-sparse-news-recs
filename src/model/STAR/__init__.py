@@ -1,5 +1,5 @@
 """
-STAR (Sparse Text-based Attentive Ranker) for News Recommendation.
+STAR (Sparse Text Approach for Recommendation; Tigunova et al., CIKM 2024).
 A sparse bi-encoder that encodes user history as concatenated title text
 and candidate news as category+title+abstract text.
 """
@@ -46,8 +46,10 @@ class TextEncoder(nn.Module):
 
 
 class STAR(nn.Module):
-    """
-    STAR model for news recommendation using sparse text representations.
+    """STAR (Tigunova et al., CIKM 2024).
+
+    Sparse bi-encoder for recommendation that represents a user as the
+    concatenated text of their clicked news.
     """
     def __init__(self, model_config, dataset_config, device):
         super().__init__()
@@ -82,6 +84,14 @@ class STAR(nn.Module):
             enable_warmup=bool(model_config.get('lambda_scheduler_warmup', True))
         )
         
+        self.target_lambda_u = float(model_config.get('lambda_u', 0.0))
+        self.lambda_u_scheduler = LambdaScheduler(
+            target_lambda_n=self.target_lambda_u,
+            initial_lambda_n=self.initial_lambda,
+            warmup_steps=int(model_config.get('lambda_scheduler_steps', 50000)),
+            enable_warmup=bool(model_config.get('lambda_scheduler_warmup', True))
+        )
+
         self.temperature = nn.Parameter(torch.ones(1))
         
     def _calculate_flops_regularizer(self, vectors: torch.Tensor) -> torch.Tensor:
@@ -117,22 +127,24 @@ class STAR(nn.Module):
         click_prob = self.click_predictor(candidate_vecs, user_vec) / self.temperature
         
         current_lambda_n = self.lambda_scheduler.get_lambda_values()
+        current_lambda_u = self.lambda_u_scheduler.get_lambda_values()
         candidate_flops = self._calculate_flops_regularizer(candidate_vecs)
-        total_reg = current_lambda_n * candidate_flops
+        user_flops = self._calculate_flops_regularizer(user_vec)
+        total_reg = current_lambda_n * candidate_flops + current_lambda_u * user_flops
         
         reg_info = {
             'total': total_reg,
             'candidate_flops': candidate_flops,
             'history_news_flops': torch.tensor(0.0),
-            'user_flops': torch.tensor(0.0),
-            'candidate_weighted': total_reg,
-            'history_news_weighted': torch.tensor(0.0), 
-            'user_weighted': torch.tensor(0.0),
+            'user_flops': user_flops,
+            'candidate_weighted': current_lambda_n * candidate_flops,
+            'history_news_weighted': torch.tensor(0.0),
+            'user_weighted': current_lambda_u * user_flops,
             'current_lambda_n': current_lambda_n,
-            'current_lambda_u': 0.0,
-            'avg_user_scaling': 1.0,  
+            'current_lambda_u': current_lambda_u,
+            'avg_user_scaling': 1.0,
             'avg_history_scaling': 1.0,
-            'avg_history_length': 0.0, 
+            'avg_history_length': 0.0,
         }
         
         return click_prob, reg_info
@@ -145,12 +157,22 @@ class STAR(nn.Module):
     
     def get_user_vector(self, user_text_input, mask=None):
         if isinstance(user_text_input, torch.Tensor):
-            return user_text_input
+            user_vec = user_text_input
+        else:
+            user_vec = self.text_encoder(
+                user_text_input['input_ids'],
+                user_text_input['attention_mask']
+            )
             
-        return self.text_encoder(
-            user_text_input['input_ids'],
-            user_text_input['attention_mask']
-        )
+        topk = getattr(self, 'topk_sparsity_queries', None)
+        if topk is not None:
+            k = int(topk)
+            if 0 < k < user_vec.size(-1):
+                _, indices = torch.topk(user_vec, k=k, dim=-1)
+                mask_topk = torch.zeros_like(user_vec).to(user_vec.device).scatter_(-1, indices, 1.0)
+                user_vec = user_vec * mask_topk
+                
+        return user_vec
     
     def get_prediction(self, news_vector, user_vector):
         return self.click_predictor(news_vector, user_vector)

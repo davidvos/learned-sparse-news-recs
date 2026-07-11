@@ -13,6 +13,10 @@ pipeline performs the following steps:
 
 The resulting directory structure under `datasets.ebnerd.path` matches the
 layout expected by the other scripts in this repository.
+
+Usage::
+
+    uv run python src/data/preprocess_ebnerd.py
 """
 
 from __future__ import annotations

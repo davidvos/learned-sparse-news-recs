@@ -1,6 +1,8 @@
-"""
+"""Pre-tokenization script.
+
 Script to pre-tokenize news content and save as a PyTorch tensor dictionary.
-This avoids on-the-fly tokenization bottlenecks during training.
+This avoids on-the-fly tokenization bottlenecks during training by producing
+a single `news_tokenized.pt` cache artifact.
 
 Usage:
     python src/data/tokenize.py --dataset mind
@@ -21,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT))
 
 from config import load_config
-from data.dataset import _load_news_df, _load_mapping
+from src.data.dataset import _load_news_df, _load_mapping
 
 
 def tokenize_news(dataset_name: str, output_path: str | None = None) -> None:

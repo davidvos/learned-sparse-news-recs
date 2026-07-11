@@ -77,4 +77,4 @@ urllib3==2.3.0
 wandb==0.19.6
 zipp==3.21.0
 pyseismic-lsr
-faiss-cpu
+faiss-gpu

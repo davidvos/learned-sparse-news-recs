@@ -173,11 +173,16 @@ cython_debug/
 # .DS_Store files
 .DS_Store
 
-# Data and Checkpoints
+# Data, checkpoints, and logs
 data/*
 !data/.gitkeep
-wandb
+wandb/
 checkpoints/*
 !checkpoints/.gitkeep
-zero_shot_data.ipynb
+
+# Editor / IDE settings
 .vscode/
+.idea/
+
+# Development tool metadata
+.claude/

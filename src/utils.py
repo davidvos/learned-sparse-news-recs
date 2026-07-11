@@ -1,3 +1,14 @@
+"""Shared utilities for training and evaluation.
+
+Includes:
+
+- **Metrics** — AUC, MRR, nDCG@k, HR@k, Recall@k per-user computation.
+- **LambdaScheduler** — quadratic warmup schedule for FLOPS regularisation.
+- **EarlyStopping** — patience-based training halting.
+- **Checkpointing** — save/load with automatic latest-checkpoint discovery.
+- **Device selection** — auto-detect CUDA / MPS / CPU.
+- **Model registry** — centralised mapping from model name to class.
+"""
 import os
 import random
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -394,8 +405,28 @@ def load_model_and_checkpoint(
         ckpt_path = latest_checkpoint(checkpoint_dir)
         if ckpt_path:
             print(f"Loading checkpoint from {ckpt_path}")
-            checkpoint = torch.load(ckpt_path, map_location=device)
-            model.load_state_dict(checkpoint['model_state_dict'])
+            checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
+            state_dict = checkpoint['model_state_dict']
+            # Remap news_encoder.plm.* → plm.* to handle checkpoints saved before
+            # NewsEncoder's PLM was merged with the top-level BaseModel PLM.
+            # We prefer news_encoder.plm.* (the actually fine-tuned weights) over
+            # any top-level plm.* that may have been untouched during training.
+            remapped = {}
+            for k, v in state_dict.items():
+                if k.startswith('news_encoder.plm.'):
+                    remapped[k[len('news_encoder.'):]] = v  # news_encoder.plm.x → plm.x
+                else:
+                    remapped[k] = v
+            # news_encoder.plm is the same object as plm; populate both paths so
+            # load_state_dict doesn't report news_encoder.plm.* as missing keys.
+            for k in list(remapped.keys()):
+                if k.startswith('plm.'):
+                    remapped['news_encoder.' + k] = remapped[k]
+            missing, unexpected = model.load_state_dict(remapped, strict=False)
+            if missing:
+                print(f"  Checkpoint missing keys (will use init): {missing}")
+            if unexpected:
+                print(f"  Checkpoint unexpected keys (ignored): {unexpected}")
             checkpoint_data = checkpoint
             start_step = checkpoint.get('step', 0)
         else:

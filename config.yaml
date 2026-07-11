@@ -1,7 +1,8 @@
 # Configuration for Learned Sparse News Recommenders (LSNR).
 #
-# This file collects the shared defaults used by preprocessing, training, and
-# evaluation.
+# This file provides the central default configuration for all datasets and
+# models. Any property defined here can be overridden at runtime via
+# command-line flags (e.g., `--learning_rate 0.001` or `--lambda_n 0.01`).
 
 # Global settings shared across scripts
 global:
@@ -38,12 +39,12 @@ datasets:
     num_clicked_news_a_user: 50
     num_words_title: 30
     num_words_abstract: 50
-    pretrained_model_name: 'answerdotai/ModernBERT-base'
-    star_pretrained_model_name: 'answerdotai/ModernBERT-base'
+    pretrained_model_name: 'bert-base-uncased'
+    star_pretrained_model_name: 'bert-base-uncased'
     pad_clicked_history: true
     pad_candidate_news: true
-    num_categories: 17
-    num_subcategories: 264
+    num_categories: 18
+    num_subcategories: 265
     num_users: 595706
 
   ebnerd:
@@ -52,12 +53,12 @@ datasets:
     num_words_title: 20
     num_words_abstract: 30
     num_words_body: 50
-    pretrained_model_name: 'jhu-clsp/mmBERT-base'
-    star_pretrained_model_name: 'jhu-clsp/mmBERT-base'
+    pretrained_model_name: 'Maltehb/danish-bert-botxo'
+    star_pretrained_model_name: 'bert-base-multilingual-uncased'
     pad_clicked_history: true
     pad_candidate_news: true
-    num_categories: 26
-    num_subcategories: 83
+    num_categories: 27
+    num_subcategories: 84
     num_users: 18827
 
 # Model configurations
@@ -71,10 +72,13 @@ models:
     dropout_probability: 0.2
     lambda_n: 0.005  # For candidate news
     lambda_history: 0.0005  # For history news
+    lambda_u: 0.0005  # For user vectors
+    user_sparsity_type: "l1"  # "flops" or "l1"
+    topk_sparsity_queries: 10  # Enforce top-k activations on user queries
     use_history_length_scaling: true
     freeze_bert_layers: 9
 
-  # STAR: Sparse Text-based Attentive Ranker (bi-encoder with text concatenation)
+  # STAR: Sparse Text Approach for Recommendation (bi-encoder with text concatenation)
   star:
     model: "star"
     negative_sampling_ratio: 16
