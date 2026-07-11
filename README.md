@@ -24,7 +24,6 @@ To address both bottlenecks, we introduce **Learned Sparse News Recommendations 
 │   ├── train.py                 # Training entry point
 │   ├── evaluate.py              # Retrieval evaluation and prediction export
 │   ├── benchmark.py             # Index size and retrieval latency benchmarking
-│   ├── demo_pipeline.py         # End-to-end demo: train → eval → latency
 │   ├── inspect_user.py          # Profile inspection helper
 │   ├── find_good_profile.py     # Profile ranking helper
 │   ├── config.py                # Configuration loading and CLI parsing
@@ -172,31 +171,7 @@ uv run python src/benchmark.py \
     --experiment_name lsnr_mind \
     --output results.json
 ```
-
 ---
-
-### 6. End-to-End Demo
-
-Runs a fast train → eval → latency benchmark in one command (uses debug limits for speed):
-
-```bash
-uv run python src/demo_pipeline.py --model_type lsnr --dataset mind
-```
-
----
-
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@inproceedings{lsnr2025,
-  title={Learned Sparse News Recommendations with Attentive User Modeling},
-  author={Anonymous},
-  booktitle={Proceedings of the Conference},
-  year={2025}
-}
-```
 
 ## License
 
